@@ -1,6 +1,7 @@
 import torch 
 import torch.nn as nn
-from deepxde.nn.pytorch import DeepONet
+from .deeponet import DeepONet
+
 
 
 class Swish(nn.Module):

@@ -13,6 +13,9 @@ def get_data(args):
         if args.problem == 'harmonic_oscillator':
             assert len(args.IC) == 3, 'Initial conditions for harmonic oscillator must be a list of length 3.'
             data = [get_harmonic_oscillator_data(args), get_harmonic_oscillator_data(args)]
+        elif args.problem == '1d_KdV_Soliton':
+            assert len(args.IC) == 2, 'Initial conditions for 1d-KdV with Soliton must be a list of length 2.'
+            data = [get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args)]
         else:
             raise ValueError(f"Problem {args.problem} not recognized.")
     else:
@@ -21,13 +24,6 @@ def get_data(args):
         with open(args.data_dir + args.data_config, 'wb') as f:
             pickle.dump(data, f)
     return data
-
-# Define the ODE system
-def harmonic_oscillator(t, z, omega):
-    x, v = z  # z = [x, v], where v = dx/dt
-    dxdt = v
-    dvdt = -omega**2 * x
-    return [dxdt, dvdt]
 
 class DeepOData(Dataset):
     def __init__(self, x, y):
@@ -41,6 +37,12 @@ class DeepOData(Dataset):
     def __getitem__(self, idx):
         return (self.branch_data[idx], self.trunk_data[idx]), self.labels[idx]  # Return a single data-label pair
 
+# Define the ODE system
+def harmonic_oscillator(t, z, omega):
+    x, v = z  # z = [x, v], where v = dx/dt
+    dxdt = v
+    dvdt = -omega**2 * x
+    return [dxdt, dvdt]
 
 # Make harmonic oscillator dataset
 def get_harmonic_oscillator_data(args):
@@ -63,11 +65,51 @@ def get_harmonic_oscillator_data(args):
 
         y = np.concatenate([y, solution.y], axis=1)
 
+    if args.num_outputs == 1:
+        y = y[0:1, :]  # Retain only the first variable in the solution matrix y
+
     trunk_data = np.tile(trunk_data, (1, args.n_branch)).transpose() #n_trunk * n_trunk
     branch_data = np.repeat(branch_data, repeats=args.n_trunk, axis=0)
 
     x = (branch_data.astype(np.float32), trunk_data.astype(np.float32))
     y = y.astype(np.float32)
+
+    if args.method == 'deeponet':
+        data = DeepOData(x, y)
+    else:
+        raise ValueError(f"Method {args.method} not implemented as data type.")
+
+    return data
+
+# Make 1d_KdV_Soliton dataset
+
+def exact_soliton(x, t, c, a):
+    arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
+    return ((c / 2) / np.cosh(arg) ** 2)  # Stable sech^2 computation
+
+
+def get_1d_KdV_Soliton_data(args):
+    a = np.random.uniform(args.IC['a'][0], args.IC['a'][1], size=(args.n_branch, 1))  # parameter 1
+    c = np.random.uniform(args.IC['c'][0], args.IC['c'][1], size=(args.n_branch, 1))  # parameter 2
+    trunk_t =  np.linspace(args.tmin, args.tmax, int((args.tmax-args.tmin)/args.t_res))
+    trunk_x = np.linspace(args.xmin, args.xmax, int((args.xmax-args.xmin)/args.x_res))
+
+    X, T = np.meshgrid(trunk_x, trunk_t)
+    trunk_data = np.column_stack((T.flatten(), X.flatten()))
+
+    branch_data = np.concatenate((a,c), axis=1) #n_branch x 2
+
+    # Generate solution for each parameter set
+    y = np.array([exact_soliton(trunk_data[:,1], trunk_data[:,0], c_i, a_i) 
+                  for a_i, c_i in zip(branch_data[:,0], branch_data[:,1])])
+    y = y.reshape(-1, 1).T  # Reshape to match expected format
+    y = y.astype(np.float32)
+
+    branch_data = np.repeat(branch_data, repeats=trunk_data.shape[0], axis=0)
+    trunk_data = np.tile(trunk_data, (args.n_branch, 1))
+
+    x = (branch_data.astype(np.float32), trunk_data.astype(np.float32))
+
 
     if args.method == 'deeponet':
         data = DeepOData(x, y)

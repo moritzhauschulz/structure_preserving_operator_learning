@@ -36,3 +36,5 @@ test.ipynb
 *.so
 *.a
 *.out
+
+wandb/
