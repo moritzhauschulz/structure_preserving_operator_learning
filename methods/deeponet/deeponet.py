@@ -155,6 +155,7 @@ def main_loop(args, data):
                 y = y.to(args.device)
 
                 loss, losses = compute_loss(args,i, model, x, y)
+                val_loss += loss.item()
                 for key, value in losses.items():
                     key = f'{key}_val'
                     if key not in epoch_losses:
@@ -216,9 +217,9 @@ def main_loop(args, data):
             examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad = compute_example_with_energy(i, args, val_data, model)
             visualize_example_with_energy('val', args, examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad)
     elif args.problem == '1d_KdV_Soliton':
-        h = 1
+        h = 0.25
         a = (args.IC['a'][0] +  args.IC['a'][1])/2
         c = (args.IC['c'][0] +  args.IC['c'][1])/2
         
-        plot_1d_KdV_Soliton(args, h, a, c, model, save_dir=args.save_plots)
+        plot_1d_KdV_Soliton(args, h,0.001, a, c, model, save_dir=args.save_plots)
 

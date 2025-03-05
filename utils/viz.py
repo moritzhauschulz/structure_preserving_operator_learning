@@ -213,13 +213,13 @@ def wandb_viz_loss(exp_n, save_dir=None, exclude_val=False, wandb_user='moritz-h
         plt.show()
 
 
-def plot_1d_KdV_Soliton(args, h, a, c, model, save_dir):
+def plot_1d_KdV_Soliton(args, h, x_res, a, c, model, save_dir):
     L = args.xmax - args.xmin
 
-    print(L)
+    print(args.xmax, args.xmin, L)
 
     t_values = np.arange(args.tmin, args.tmax + h, h)  # Time steps for saving solutions
-    x = np.linspace(-L/2, L/2, int(L/args.x_res), endpoint=False)
+    x = np.linspace(-L/2, L/2, int(L/x_res), endpoint=False)
 
     def exact_soliton(x, t, c, a):
         arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
@@ -228,16 +228,27 @@ def plot_1d_KdV_Soliton(args, h, a, c, model, save_dir):
     plt.figure(figsize=(10, 6))
 
     for t in t_values:
-        t_tenssor = torch.tensor(t).repeat(x.shape[0], 1)
-        tx = torch.cat([t_tenssor, torch.tensor(x).unsqueeze(-1)],dim=1).float().to(args.device)
+        t_tensor = torch.tensor(t).repeat(x.shape[0], 1)
+        tx = torch.cat([t_tensor, torch.tensor(x).unsqueeze(-1)],dim=1).float().to(args.device)
         IC = torch.tensor([a, c]).float().unsqueeze(0).repeat(x.shape[0], 1).to(args.device)
-        y_hat = model((IC, tx))[0].detach().cpu().numpy()
-        print(type(t), type(x), type(IC), type(y_hat))
+        out = model((IC, tx))
+        y_hat = out[0].detach().cpu().numpy()
+        fourier_nrg = out[1][-1]
         y = exact_soliton(x, t, c, a)
-        print(len(y), len(y_hat))
 
-        plt.plot(x, y, label=f"t = {t:.1f}")
-        plt.plot(x, y_hat, label=f"t = {t:.1f} (predicted)", linestyle='--')
+        #compute energy of y via fourier modes
+
+        y_cumulative = np.cumsum(y**2) * x_res
+        energy_y = np.sum(y**2) * (x_res)  # L2 norm squared times dx
+        y_hat_cumulative = np.cumsum(y_hat**2) * x_res
+        energy_y_hat = np.sum(y_hat**2) * (x_res)
+        print(f'min and max fourier nrg: {fourier_nrg.min().item()}, {fourier_nrg.max().item()}')
+        print(f"Energy at t={t:.1f}: True = {energy_y:.6f}, Predicted = {energy_y_hat:.6f}")
+
+        plt.plot(x, y, label=f"t = {t:.1f}, nrg={energy_y:.2f}", linestyle='-')
+        plt.plot(x, y_hat, label=f"t = {t:.1f} (predicted), nrg={energy_y_hat:.2f}", linestyle='--')
+        plt.plot(x, y_cumulative, label=f"t = {t:.1f} (cumulative)", linestyle='-.')
+        plt.plot(x, y_hat_cumulative, label=f"t = {t:.1f} (predicted cumulative)", linestyle=':')
 
     plt.xlabel("x")
     plt.ylabel("u(x,t)")

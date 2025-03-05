@@ -62,7 +62,6 @@ def get_harmonic_oscillator_data(args):
         (omega) = branch_data[i,2] #angular velocity
         # Solve the ODE
         solution = solve_ivp(harmonic_oscillator, t_span, z0, args=(omega,), t_eval=trunk_data)
-
         y = np.concatenate([y, solution.y], axis=1)
 
     if args.num_outputs == 1:
@@ -84,8 +83,12 @@ def get_harmonic_oscillator_data(args):
 # Make 1d_KdV_Soliton dataset
 
 def exact_soliton(x, t, c, a):
-    arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
-    return ((c / 2) / np.cosh(arg) ** 2)  # Stable sech^2 computation
+    if isinstance(x, torch.Tensor):
+        arg = torch.clamp(torch.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
+        return ((c / 2) / torch.cosh(arg) ** 2)  # Stable sech^2 computation
+    else:
+        arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
+        return ((c / 2) / np.cosh(arg) ** 2)  # Stable sech^2 computation
 
 
 def get_1d_KdV_Soliton_data(args):
@@ -109,7 +112,6 @@ def get_1d_KdV_Soliton_data(args):
     trunk_data = np.tile(trunk_data, (args.n_branch, 1))
 
     x = (branch_data.astype(np.float32), trunk_data.astype(np.float32))
-
 
     if args.method == 'deeponet':
         data = DeepOData(x, y)

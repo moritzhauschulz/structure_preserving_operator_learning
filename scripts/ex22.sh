@@ -12,14 +12,14 @@ counter=1
 #then last branch layer should be 2K*(M+1)
 #and last trunk layer should be K 
 
-for strat in Fourier; do
+for strat in FourierNorm; do
     python main.py --problem 1d_KdV_Soliton --device cpu --method deeponet \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \
             --num_outputs 20 \
             --tmax 1 \
             --x_res 0.05 \
-            --t_res 0.05 \
-            --epochs 50 --load_data False --loss mse \
+            --t_res 0.1 \
+            --epochs 5 --load_data False --loss mse \
             --track_all_losses 0 \
             --multi_output_strategy $strat \
             --branch_weight 0 --trunk_weight 0 \

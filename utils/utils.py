@@ -226,9 +226,77 @@ class FourierStrategy(CustomStrategy):
 
         return out, (B.reshape(-1, B.shape[2] * self.net.num_outputs), alpha)
     
+class FourierNormStrategy(CustomStrategy):
+    def __init__(self, args, net):
+        super(FourierNormStrategy, self).__init__(net)
+        assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
+        self.L = args.xmax - args.xmin
+
+    def build(self, layer_sizes_branch, layer_sizes_trunk):
+        if layer_sizes_branch[-1] % self.net.num_outputs != 0:
+            raise AssertionError(
+                f"Output size of branch is not evenly divisible by {self.net.num_outputs}."
+            )
+        # if layer_sizes_trunk[-1] != self.net.num_outputs:
+        #     raise AssertionError(
+        #         f"Output size of the trunk net ({layer_sizes_trunk[-1]}) does not equal num outputs ({self.net.num_outputs})."
+        #     )
+        return self.net.build_branch_net(layer_sizes_branch), self.net.build_trunk_net(
+            layer_sizes_trunk
+        )
+    
+    def exact_soliton(x, t, c, a):
+        arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
+        return ((c / 2) / np.cosh(arg) ** 2)  # Stable sech^2 computation
+    
+    def call(self, x_func, x_loc, L=2 * np.pi):
+        branch_out_in = self.net.branch(x_func) 
+        #transform to complex
+        branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
+        B = to_complex_tensor(branch_out_in)
+        un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
+        un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
+
+        four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1 
+        neg_four_coef = torch.conj(four_coef[:, 1:])
+        four_coef = torch.cat((four_coef, neg_four_coef), dim=1) 
+
+        norms = torch.norm(four_coef, p=2, dim=1, keepdim=True)
+        zero_mask = (norms == 0)
+        norms = norms + zero_mask.float()  #TODO: Find a better solution to this!
+        four_coef_hat = four_coef / norms
+
+        if not torch.allclose(torch.ones(four_coef_hat.shape[0])[~zero_mask.squeeze(1)], torch.norm(four_coef_hat, p=2, dim=1, keepdim=True)[~zero_mask.squeeze(1)]):
+            raise AssertionError("DON output is not normalized")
+        if (zero_mask.squeeze(1)).sum() > B.shape[0] * 0.001 and self.net.epoch > 10:
+            raise AssertionError(f"Had to exclude more than 0.1% ({(zero_mask.squeeze(1)).sum()/B.shape[0]}) of the batch at the normalizations stage")
+        if (x_func.shape[1]<3):
+            N = 500
+            dx = self.L / N
+            a, c = x_func[:,0], x_func[:,1]
+            x = torch.linspace(-self.L/2, self.L/2, N).unsqueeze(1)
+            u0 = exact_soliton(x, 0, c, a)
+            true_nrg = torch.sum(torch.abs(u0)**2, dim=0) * dx
+            # print(true_nrg.shape)
+        else:
+            raise NotImplementedError('Energy calculation for other problems than 1d KdV not implemented')
+
+        four_coef_hat = four_coef_hat * torch.sqrt(true_nrg[:,None])/torch.sqrt(torch.tensor(L))
+
+        four_coef_hat = four_coef_hat.unsqueeze(-1) #N x  M+1 x 1
+
+        fourier_energy = torch.sum(torch.abs(four_coef_hat)**2, dim=1) * torch.tensor(L)
+        # print(f'squared nrg: {fourier_energy[0]} squared true_nrg: {true_nrg[0]}')
+
+        out = fourier_series(x_loc, four_coef_hat, self.L) #N x 1
+        out = out.reshape(-1, 1) #for now final output is dim 1
+
+        return out, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, fourier_energy)
+
+    
 class FourierQRStrategy(CustomStrategy):
     def __init__(self, args, net):
-        super(FourierStrategy, self).__init__(net)
+        super(FourierQRStrategy, self).__init__(net)
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
         self.L = args.xmax - args.xmin
 
@@ -258,11 +326,15 @@ class FourierQRStrategy(CustomStrategy):
         un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
 
         Q, R = torch.linalg.qr(B)
-        if not torch.allclose(torch.eye(Q.shape[2]), torch.bmm(Q.permute(0, 2, 1), Q), atol=1e-6):
-            raise AssertionError("Q is not orthonormal")
+        # if not torch.allclose(torch.complex(torch.eye(Q.shape[2]), torch.zeros(Q.shape[2])), torch.bmm(Q.permute(0, 2, 1), Q), atol=1e-6):
+        #     raise AssertionError("Q is not orthonormal")
+        
+        # For complex unitary matrices, we need Q^H Q = I where Q^H is the conjugate transpose
+        if not torch.allclose(torch.complex(torch.eye(Q.shape[2]), torch.zeros(Q.shape[2])), torch.bmm(Q.conj().transpose(1,2), Q), atol=1e-6):
+            raise AssertionError("Q is not unitary")
 
         #check that QR=B
-        if not torch.allclose(Q @ R, branch_out_in, atol=1e-5):
+        if not torch.allclose(Q @ R, B, atol=1e-5):
             raise AssertionError("QR decomposition does not equal B")
         
         B_hat = Q
@@ -272,28 +344,40 @@ class FourierQRStrategy(CustomStrategy):
         zero_mask = (norms == 0)
         norms = norms + zero_mask.float()  #TODO: Find a better solution to this!
         alpha_hat = un_alpha / norms
+
         if not torch.allclose(torch.ones(alpha_hat.shape[0])[~zero_mask.squeeze(1)], torch.norm(alpha_hat, p=2, dim=1, keepdim=True)[~zero_mask.squeeze(1)]):
             raise AssertionError("Trunk output is not normalized")
         if (zero_mask.squeeze(1)).sum() > B_hat.shape[0] * 0.001 and self.net.epoch > 10:
             raise AssertionError(f"Had to exclude more than 0.1% ({(zero_mask.squeeze(1)).sum()/B_hat.shape[0]}) of the batch at the normalizations stage")
         if (x_func.shape[1]<3):
-            N = 100
+            N = 500
             dx = self.L / N
-            c, a = x_func[:,0], x_func[:,1]
-            x = np.linspace(-self.L/2, self.L/2, 100, endpoint=False)
+            a, c = x_func[:,0], x_func[:,1]
+            x = torch.linspace(-self.L/2, self.L/2, N).unsqueeze(1)
             u0 = exact_soliton(x, 0, c, a)
-            true_nrg = np.sum(np.abs(u0)**2) * dx
+            true_nrg = torch.sum(torch.abs(u0)**2, dim=0) * dx
+            # print(true_nrg.shape)
         else:
             raise NotImplementedError('Energy calculation for other problems than 1d KdV not implemented')
-        alpha_hat = alpha_hat * torch.sqrt(true_nrg)[:,None] #nrg[:,None]
 
-        four_coef = B @ alpha_hat.unsqueeze(-1) #N x  M+1 x 1
+        # print(alpha_hat.shape)
+        # print(true_nrg.shape)
+
+        alpha_hat = alpha_hat * torch.sqrt(true_nrg[:,None])/torch.sqrt(torch.tensor(L)) #nrg[:,None]
+
+        four_coef = B_hat @ alpha_hat.unsqueeze(-1) #N x  M+1 x 1
+
+        # u_hat_neg = torch.conj(four_coef[:, 1:, :]).squeeze(-1)
+        # u_hat_pos = four_coef.squeeze(-1)
+        # u_all = torch.cat((u_hat_pos, u_hat_neg), dim=1)
+        # nrg = torch.sum(torch.abs(u_all)**2, dim=1) * L
+
+        # print(f'pred nrg is {nrg[0]} vs. true nrg {true_nrg[0]}')
 
         out = fourier_series_half_modes(x_loc, four_coef, self.L) #N x 1
-        
         out = out.reshape(-1, 1) #for now final output is dim 1
 
-        return out, (B.reshape(-1, B.shape[2] * self.net.num_outputs), alpha_hat)
+        return out, (B_hat.reshape(-1, B.shape[2] * self.net.num_outputs), alpha_hat)
 
 def to_complex_tensor(tensor):
     """
@@ -338,8 +422,57 @@ def fourier_series_half_modes(x_loc, u_hat_m, L):
     exp_neg = torch.exp(-1j * torch.outer(x, k_m[1:]))  # Negative k_m exponentials
 
     # Compute Fourier sum
+    # u_x_t = torch.sum(exp_term * u_hat_m.squeeze(-1), dim=-1)  # Positive modes
+    # u_x_t += torch.sum(exp_neg * u_hat_neg.squeeze(-1), dim=-1)  # Negative modes
+
     u_x_t = torch.sum(exp_term * u_hat_m.squeeze(-1), dim=-1)  # Positive modes
-    u_x_t += torch.sum(exp_neg * u_hat_neg.squeeze(-1), dim=-1)  # Negative modes
+    u_x_t += torch.conj(u_x_t) - u_hat_m[:, 0, 0].real 
+
+    if torch.abs(u_x_t.imag).max() > 1e-6:
+        raise AssertionError(f"Imaginary part is not zero (was {u_x_t.imag.max()})")
+
+    return u_x_t.real
+
+
+def fourier_series(x_loc, u_hat_m, L):
+    """
+    Compute u(x,t) from the Fourier expansion using all Fourier coefficients.
+
+    Parameters:
+    x_loc : torch.Tensor, shape (N, 2)
+        Batched (t, x) pairs.
+    u_hat_m : torch.Tensor, shape (N, 2M+1, 1)
+        Fourier coefficients \hat{u}_m(t) for m >= 0.
+    L : float
+        Domain length.
+
+    Returns:
+    torch.Tensor, shape (N,)
+        Computed function u(x,t) values.
+    """
+    N, num_modes, _ = u_hat_m.shape  # num_modes = 2M + 1
+    M = int((num_modes-1)/2)  # Max mode index
+    t, x = x_loc[:, 0], x_loc[:, 1]  # Extract t and x from x_loc
+
+    # Fourier wave numbers: m * k_0 where k_0 = 2π / L
+    m_vals = torch.arange(0, M + 1, dtype=torch.float32, device=x_loc.device)  # Shape (M+1,)
+    k_0 = 2 * torch.pi / L
+    k_m = m_vals * k_0  # Shape (M+1,)
+
+    # Compute exponentials for positive modes: e^(i k_m x) -> Shape (N, M+1)
+    exp_term = torch.exp(1j * torch.outer(x, k_m))
+
+    # Compute negative modes' coefficients using complex conjugates
+    u_hat_neg = u_hat_m[:, 0:M, :]  # Skip m=0 for symmetry
+    exp_neg = torch.exp(-1j * torch.outer(x, k_m[1:]))  # Negative k_m exponentials
+
+    # Compute Fourier sum
+    u_x_t = torch.sum(exp_term * u_hat_m[:, M:, :].squeeze(-1), dim=-1)  # Positive modes
+    # u_x_t += torch.sum(exp_neg * u_hat_neg.squeeze(-1), dim=-1)  # Negative modes
+    u_x_t += torch.conj(u_x_t) - u_hat_m[:, 0, 0].real
+
+    if torch.abs(u_x_t.imag).max() > 1e-3:
+        raise AssertionError("Imaginary part is not zero")
 
     return u_x_t.real
 

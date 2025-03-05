@@ -5,6 +5,7 @@ import datetime
 import torch
 from utils.data import get_data
 import wandb
+import json
 
 from methods.deeponet.deeponet import main_loop as deeponet_main_loop
 from filelock import FileLock
@@ -20,7 +21,7 @@ def get_args():
     parser.add_argument('--device', type=str, default='cpu', choices=['cpu', 'cuda', 'mps'], help='Device')
     parser.add_argument('--tmax', type=int, default=25, help='Maximum time')
     parser.add_argument('--tmin', type=int, default=0, help='Minimum time')
-    parser.add_argument('--t_res', type=int, default=0.1, help='Time resolution')
+    parser.add_argument('--t_res', type=float, default=0.1, help='Time resolution')
     parser.add_argument('--xmax', type=int, default=25, help='Maximum time')
     parser.add_argument('--xmin', type=int, default=-25, help='Minimum time')
     parser.add_argument('--x_res', type=float, default=0.1, help='x resolution')
@@ -28,11 +29,11 @@ def get_args():
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load model')
     parser.add_argument('--save_data', type=bool, default=True, help='Save data')
     parser.add_argument('--save_model', type=bool, default=True, help='Save model')
-    parser.add_argument('--IC', type=dict, default=None, help='Initial Conditions')
+    parser.add_argument('--IC', type=str, default=None, help='Initial Conditions')
     parser.add_argument('--problem', type=str, default='harmonic_oscillator', help='Problem name')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=1024, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=1028, help='Batch size')
     parser.add_argument('--eval_every', type=int, default=5, help='Evaluate every')
     parser.add_argument('--num_outputs', type=int, default=1, help='Number of outputs')
     parser.add_argument('--num_examples', type=int, default=5, help='Number of examples')
@@ -53,7 +54,7 @@ def get_args():
     parser.add_argument('--branch_layers', type=int, nargs='+', default=[3, 128, 128, 128, 4], help='Branch layers')
     parser.add_argument('--trunk_layers', type=int, nargs='+', default=[1, 128, 128, 2], help='Trunk layers')
     parser.add_argument('--deepo_activation', type=str, default='tanh', help='Trunk layers')
-    parser.add_argument('--multi_output_strategy', type=str, default=None, choices={'independent','split_both','split_branch','split_trunk','orthonormal_branch_normal_trunk', 'normal_trunk', 'orthonormal_trunk', 'orthonormal_branch_normal_trunk_reg', 'QR', 'Fourier'}, help='DeepONet strategy')
+    parser.add_argument('--multi_output_strategy', type=str, default=None, choices={'independent','split_both','split_branch','split_trunk','orthonormal_branch_normal_trunk', 'normal_trunk', 'orthonormal_trunk', 'orthonormal_branch_normal_trunk_reg', 'QR', 'Fourier', 'FourierQR', 'FourierNorm'}, help='DeepONet strategy')
     parser.add_argument('--loss', type=str, default='mse', choices=['mse', 'reg', 'nrg'], help='Loss function')
     
 
@@ -67,6 +68,8 @@ def get_args():
     args = parser.parse_args()
 
     print(args.num_outputs)
+
+    args.IC = json.loads(args.IC)
     
     #data
     if args.problem == 'harmonic_oscillator':
@@ -76,7 +79,7 @@ def get_args():
 
     if args.problem == '1d_KdV_Soliton':
         if temp_args.IC is None:
-            args.IC = {'c': [1,5], 'a': [-10,10]}
+            args.IC = {'c': [2.5,2.5], 'a': [-0,0]} #make this harder
         args.data_config = f'_c_{args.IC["c"]}_a_{args.IC["a"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}.pkl'
 
     #log
