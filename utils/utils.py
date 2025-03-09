@@ -194,45 +194,6 @@ class FourierStrategy(CustomStrategy):
         super(FourierStrategy, self).__init__(net)
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
         self.L = args.xmax - args.xmin
-
-    def build(self, layer_sizes_branch, layer_sizes_trunk):
-        if layer_sizes_branch[-1] % self.net.num_outputs != 0:
-            raise AssertionError(
-                f"Output size of branch is not evenly divisible by {self.net.num_outputs}."
-            )
-        # if layer_sizes_trunk[-1] != self.net.num_outputs:
-        #     raise AssertionError(
-        #         f"Output size of the trunk net ({layer_sizes_trunk[-1]}) does not equal num outputs ({self.net.num_outputs})."
-        #     )
-        return self.net.build_branch_net(layer_sizes_branch), self.net.build_trunk_net(
-            layer_sizes_trunk
-        )
-
-    def call(self, x_func, x_loc, L=2 * np.pi):
-        # print(x_func.shape)
-        # print(x_loc.shape)
-        branch_out_in = self.net.branch(x_func) 
-        #transform to complex
-        branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
-        B = to_complex_tensor(branch_out_in)
-        alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
-        
-        #make alpha complex float
-        alpha = torch.complex(alpha, torch.zeros_like(alpha))
-
-        four_coef = B @ alpha.unsqueeze(-1) #N x  M+1 x 1
-
-        out = fourier_series_half_modes(x_loc, four_coef, self.L) #N x 1
-        
-        out = out.reshape(-1, 1) #for now final output is dim 1
-
-        return out, (B.reshape(-1, B.shape[2] * self.net.num_outputs), alpha)
-    
-class FourierNormStrategy(CustomStrategy):
-    def __init__(self, args, net):
-        super(FourierNormStrategy, self).__init__(net)
-        assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
-        self.L = args.xmax - args.xmin
         self.K = args.col_N
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
