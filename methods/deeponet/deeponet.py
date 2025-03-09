@@ -14,7 +14,7 @@ from tqdm import tqdm
 import torch.nn as nn
 from deepxde.optimizers.pytorch.optimizers import _get_learningrate_scheduler
 
-from utils.viz import visualize_example, visualize_example_with_energy, plot_y_with_initial_conditions, visualize_loss, compute_example_with_energy, wandb_viz_loss, plot_1d_KdV_Soliton
+from utils.viz import visualize_example, visualize_example_with_energy, plot_y_with_initial_conditions, visualize_loss, compute_example_with_energy, wandb_viz_loss, plot_1d_KdV_Soliton, plot_1d_KdV_Soliton_ifft
 from utils.model import DeepONetWithGrad
 from utils.data import harmonic_oscillator
 from utils.data import get_data
@@ -23,6 +23,11 @@ import csv
 import wandb
 
 np.random.seed(42)
+
+
+def mse_complex(x, y):
+    return torch.mean(torch.abs(x - y) ** 2)  # Squared magnitude error
+
 
 def main_loop(args, data):
 
@@ -56,8 +61,14 @@ def main_loop(args, data):
         else:
             aux = None
 
+        # print(preds[0,:])
+        # print(y[0,:])
+
         losses = {}
-        main_loss = mse_loss(preds, y)
+        if torch.is_complex(preds):
+            main_loss = mse_complex(preds, y)
+        else:
+            main_loss = mse_loss(preds, y)
         loss = main_loss
         losses['mse_loss'] = main_loss
 
@@ -217,9 +228,12 @@ def main_loop(args, data):
             examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad = compute_example_with_energy(i, args, val_data, model)
             visualize_example_with_energy('val', args, examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad)
     elif args.problem == '1d_KdV_Soliton':
-        h = 0.25
+        h = 0.5
         a = (args.IC['a'][0] +  args.IC['a'][1])/2
         c = (args.IC['c'][0] +  args.IC['c'][1])/2
-        
-        plot_1d_KdV_Soliton(args, h,0.001, a, c, model, save_dir=args.save_plots)
+
+        if args.use_ifft:
+            plot_1d_KdV_Soliton_ifft(args, h,0.001, a, c, model, save_dir=args.save_plots)
+        else:
+            plot_1d_KdV_Soliton(args, h,0.001, a, c, model, save_dir=args.save_plots)
 

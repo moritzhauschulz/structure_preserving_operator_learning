@@ -209,6 +209,8 @@ class FourierStrategy(CustomStrategy):
         )
 
     def call(self, x_func, x_loc, L=2 * np.pi):
+        # print(x_func.shape)
+        # print(x_loc.shape)
         branch_out_in = self.net.branch(x_func) 
         #transform to complex
         branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
@@ -231,6 +233,7 @@ class FourierNormStrategy(CustomStrategy):
         super(FourierNormStrategy, self).__init__(net)
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
         self.L = args.xmax - args.xmin
+        self.K = args.col_N
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
         if layer_sizes_branch[-1] % self.net.num_outputs != 0:
@@ -249,7 +252,11 @@ class FourierNormStrategy(CustomStrategy):
         arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
         return ((c / 2) / np.cosh(arg) ** 2)  # Stable sech^2 computation
     
-    def call(self, x_func, x_loc, L=2 * np.pi, target_res=1000):
+    def call(self, x_func, x_loc, L=2 * np.pi):
+
+        # print(x_func.shape)
+        # print(x_loc.shape)
+    
         branch_out_in = self.net.branch(x_func) 
         #transform to complex
         branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
@@ -257,41 +264,51 @@ class FourierNormStrategy(CustomStrategy):
         un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
         un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
 
+        # print(B.shape)
+        # print(un_alpha.shape)
+
         four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1 
-        neg_four_coef = torch.conj(four_coef[:, 1:])
-        four_coef = torch.cat((four_coef, neg_four_coef), dim=1) 
+        neg_four_coef = torch.conj(torch.flip(four_coef[:, 1:], dims=[1]))  # Flip to maintain Hermitian symmetry
+        four_coef[:, 0].imag = 0  # Ensure DC is real
+        four_coef = torch.cat((four_coef, neg_four_coef), dim=1)
+        # print(four_coef.shape)
+        # print(four_coef[0])
 
-        norms = torch.norm(four_coef, p=2, dim=1, keepdim=True)
-        zero_mask = (norms == 0)
-        norms = norms + zero_mask.float()  #TODO: Find a better solution to this!
-        four_coef_hat = four_coef / norms
+        # norms = torch.norm(four_coef, p=2, dim=1, keepdim=True)
+        # zero_mask = (norms == 0)
+        # norms = norms + zero_mask.float()  #TODO: Find a better solution to this!
+        # four_coef_hat = four_coef / norms
 
-        if not torch.allclose(torch.ones(four_coef_hat.shape[0])[~zero_mask.squeeze(1)], torch.norm(four_coef_hat, p=2, dim=1, keepdim=True)[~zero_mask.squeeze(1)]):
-            raise AssertionError("DON output is not normalized")
-        if (zero_mask.squeeze(1)).sum() > B.shape[0] * 0.001 and self.net.epoch > 10:
-            raise AssertionError(f"Had to exclude more than 0.1% ({(zero_mask.squeeze(1)).sum()/B.shape[0]}) of the batch at the normalizations stage")
-        if (x_func.shape[1]<3):
-            N = 500
-            dx = self.L / N
-            a, c = x_func[:,0], x_func[:,1]
-            x = torch.linspace(-self.L/2, self.L/2, N).unsqueeze(1)
-            u0 = exact_soliton(x, 0, c, a)
-            true_nrg = torch.sum(torch.abs(u0)**2, dim=0) * dx
-            # print(true_nrg.shape)
-        else:
-            raise NotImplementedError('Energy calculation for other problems than 1d KdV not implemented')
+        # if not torch.allclose(torch.ones(four_coef_hat.shape[0])[~zero_mask.squeeze(1)], torch.norm(four_coef_hat, p=2, dim=1, keepdim=True)[~zero_mask.squeeze(1)]):
+        #     raise AssertionError("DON output is not normalized")
+        # if (zero_mask.squeeze(1)).sum() > B.shape[0] * 0.001 and self.net.epoch > 10:
+        #     raise AssertionError(f"Had to exclude more than 0.1% ({(zero_mask.squeeze(1)).sum()/B.shape[0]}) of the batch at the normalizations stage")
+        # if (x_func.shape[1]<3):
+        #     N = 500
+        #     dx = self.L / N
+        #     a, c = x_func[:,0], x_func[:,1]
+        #     x = torch.linspace(-self.L/2, self.L/2, N).unsqueeze(1)
+        #     u0 = exact_soliton(x, 0, c, a)
+        #     true_nrg = torch.sum(torch.abs(u0)**2, dim=0) * dx
+        #     # print(true_nrg.shape)
+        # else:
+        #     raise NotImplementedError('Energy calculation for other problems than 1d KdV not implemented')
 
-        four_coef_hat = four_coef_hat * torch.sqrt(true_nrg[:,None])/torch.sqrt(torch.tensor(L))
+        # four_coef_hat = four_coef_hat * torch.sqrt(true_nrg[:,None])/torch.sqrt(torch.tensor(L))
 
-        four_coef_hat = four_coef_hat.unsqueeze(-1) #N x  M+1 x 1
+        four_coef_hat = four_coef.unsqueeze(-1) #N x  M+1 x 1
 
         fourier_energy = torch.sum(torch.abs(four_coef_hat)**2, dim=1) * torch.tensor(L)
         # print(f'squared nrg: {fourier_energy[0]} squared true_nrg: {true_nrg[0]}')
 
-        out = padded_ifft(four_coef_hat, target_res) #N x 1
-        out = out.reshape(-1, 1) #for now final output is dim 1
+        out = torch.fft.ifft(four_coef_hat.squeeze(-1))
+        assert out.imag.abs().max() < 1e-5, f'Imaginary part of fourier coefficients is too large: {four_coef_hat.imag.abs().max()}'
 
-        return out, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, fourier_energy)
+        # out = out.reshape(-1, 1) #for now final output is dim 1
+
+        # print(out.shape)
+
+        return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, fourier_energy)
 
     
 class FourierQRStrategy(CustomStrategy):
@@ -318,6 +335,9 @@ class FourierQRStrategy(CustomStrategy):
         return ((c / 2) / np.cosh(arg) ** 2)  # Stable sech^2 computation
     
     def call(self, x_func, x_loc, L=2 * np.pi):
+
+        # print(x_func.shape)
+        # print(x_loc.shape)
         branch_out_in = self.net.branch(x_func) 
         #transform to complex
         branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
@@ -382,27 +402,28 @@ class FourierQRStrategy(CustomStrategy):
 def padded_ifft(four_coef_hat, K):
     """
     Compute the inverse Fourier transform with zero-padding to match a target resolution K.
+    Handles batched input tensors.
     
     Parameters:
-        four_coef_hat (numpy array): The given N Fourier coefficients.
-        K (int): The target number of points for the output resolution.
+        four_coef_hat (torch.Tensor): Tensor of shape (batch_size, N) containing Fourier coefficients
+        K (int): The target number of points for the output resolution
     
     Returns:
-        numpy array: The reconstructed function sampled at K points.
+        torch.Tensor: The reconstructed function sampled at K points, shape (batch_size, K)
     """
-    N = len(four_coef_hat)  # Original number of Fourier modes
+    batch_size, N = four_coef_hat.shape  # Original number of Fourier modes
 
     # Zero-padding in Fourier space
     if K > N:
         pad_left = (K - N) // 2
         pad_right = K - N - pad_left
-        four_coef_hat_padded = np.pad(four_coef_hat, (pad_left, pad_right), mode='constant')
+        four_coef_hat_padded = torch.nn.functional.pad(four_coef_hat, (pad_left, pad_right), mode='constant', value=0)
     else:
         # If K <= N, truncate the higher frequencies
-        four_coef_hat_padded = four_coef_hat[:K]
+        four_coef_hat_padded = four_coef_hat[:, :K]
 
     # Compute the inverse FFT
-    out = np.fft.ifft(four_coef_hat_padded) * (K / N)  # Adjust scaling factor
+    out = torch.fft.ifft(four_coef_hat_padded) * (K / N)  # Adjust scaling factor
 
     return out
 

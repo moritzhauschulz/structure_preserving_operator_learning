@@ -5,6 +5,7 @@ import wandb
 import pandas as pd
 from copy import deepcopy
 import numpy as np
+from .data import exact_soliton
 
 def visualize_example(args,labels, x, y_hat, y):
     plt.figure(figsize=(8, 6))
@@ -249,6 +250,53 @@ def plot_1d_KdV_Soliton(args, h, x_res, a, c, model, save_dir):
         plt.plot(x, y_hat, label=f"t = {t:.1f} (predicted), nrg={energy_y_hat:.2f}", linestyle='--')
         plt.plot(x, y_cumulative, label=f"t = {t:.1f} (cumulative)", linestyle='-.')
         plt.plot(x, y_hat_cumulative, label=f"t = {t:.1f} (predicted cumulative)", linestyle=':')
+
+    plt.xlabel("x")
+    plt.ylabel("u(x,t)")
+    plt.legend()
+    plt.title("KdV Equation: Exact vs Predicted Evolution")
+    plt.grid()
+    if save_dir:
+        plt.savefig(f"{save_dir}/KdV_preds.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+def plot_1d_KdV_Soliton_ifft(args, h, x_res, a, c, model, save_dir):
+    L = args.xmax - args.xmin
+
+    print(args.xmax, args.xmin, L)
+
+    t_values = np.arange(args.tmin, args.tmax + h, h)  # Time steps for saving solutions
+    x = np.linspace(-L/2, L/2, args.col_N)
+
+    plt.figure(figsize=(10, 6))
+
+    for t in t_values:
+        t_tensor = torch.tensor(t).unsqueeze(-1).unsqueeze(-1).float().to(args.device)
+        IC = torch.tensor([a, c]).float().unsqueeze(0).to(args.device)
+        out = model((IC, t_tensor))
+        y_hat = out[0].T.squeeze(-1).detach().cpu().numpy()
+        fourier_nrg = out[1][-1]
+        y = exact_soliton(x, t, c, a)
+
+        mse_loss = torch.nn.MSELoss()
+
+        print(f'mse loss is: {mse_loss(torch.tensor(y),torch.tensor(y_hat))}')
+
+        #compute energy of y via fourier modes
+
+        # y_cumulative = np.cumsum(y**2) * x_res
+        energy_y = np.sum(y**2) * (x_res)  # L2 norm squared times dx
+        # y_hat_cumulative = np.cumsum(y_hat**2) * x_res
+        energy_y_hat = np.sum(y_hat**2) * (x_res)
+        print(f'min and max fourier nrg: {fourier_nrg.min().item()}, {fourier_nrg.max().item()}')
+        print(f"Energy at t={t:.1f}: True = {energy_y:.6f}, Predicted = {energy_y_hat:.6f}")
+        
+        print(x.shape, y_hat.shape)
+        plt.plot(x, y, label=f"t = {t:.1f}, nrg={energy_y:.2f}", linestyle='-')
+        plt.plot(x, y_hat, label=f"t = {t:.1f} (predicted), nrg={energy_y_hat:.2f}", linestyle='--')
+        # plt.plot(x, y_cumulative, label=f"t = {t:.1f} (cumulative)", linestyle='-.')
+        # plt.plot(x, y_hat_cumulative, label=f"t = {t:.1f} (predicted cumulative)", linestyle=':')
 
     plt.xlabel("x")
     plt.ylabel("u(x,t)")

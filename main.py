@@ -11,6 +11,7 @@ from methods.deeponet.deeponet import main_loop as deeponet_main_loop
 from filelock import FileLock
 
 def get_args():
+    print('getting args')
     parser = argparse.ArgumentParser(description='Pipeline')
     parser.add_argument('--method', type=str, default='deeponet', 
         choices=[
@@ -19,13 +20,14 @@ def get_args():
     )
     parser.add_argument('--experiment_name', type=str, required=True, help='Experiment name')
     parser.add_argument('--device', type=str, default='cpu', choices=['cpu', 'cuda', 'mps'], help='Device')
-    parser.add_argument('--tmax', type=int, default=25, help='Maximum time')
-    parser.add_argument('--tmin', type=int, default=0, help='Minimum time')
+    parser.add_argument('--tmax', type=float, default=25, help='Maximum time')
+    parser.add_argument('--tmin', type=float, default=0, help='Minimum time')
     parser.add_argument('--t_res', type=float, default=0.1, help='Time resolution')
-    parser.add_argument('--xmax', type=int, default=25, help='Maximum time')
-    parser.add_argument('--xmin', type=int, default=-25, help='Minimum time')
+    parser.add_argument('--xmax', type=int, default=25, help='Maximum x')
+    parser.add_argument('--xmin', type=int, default=-25, help='Minimum x')
     parser.add_argument('--x_res', type=float, default=0.1, help='x resolution')
-    parser.add_argument('--load_data', type=bool, default=True, help='Load data')
+    parser.add_argument('--col_N', type=int, default=39, help='Number of Collocation Points')
+    parser.add_argument('--load_data', type=bool, default=False, help='Load data')
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load model')
     parser.add_argument('--save_data', type=bool, default=True, help='Save data')
     parser.add_argument('--save_model', type=bool, default=True, help='Save model')
@@ -49,6 +51,7 @@ def get_args():
     parser.add_argument('--decay', type=tuple, default=('inverse time', temp_args.epochs // 5, 0.5), help='Decay')
 
     #deeponet
+    parser.add_argument('--use_ifft', type=bool, default=False, help='Whether to use ifft – only relevant for some problems')
     parser.add_argument('--n_branch', type=int, default=50, help='Number of branches')
     parser.add_argument('--n_trunk', type=int, default=1000, help='Number of trunks')
     parser.add_argument('--branch_layers', type=int, nargs='+', default=[3, 128, 128, 128, 4], help='Branch layers')
@@ -56,7 +59,6 @@ def get_args():
     parser.add_argument('--deepo_activation', type=str, default='tanh', help='Trunk layers')
     parser.add_argument('--multi_output_strategy', type=str, default=None, choices={'independent','split_both','split_branch','split_trunk','orthonormal_branch_normal_trunk', 'normal_trunk', 'orthonormal_trunk', 'orthonormal_branch_normal_trunk_reg', 'QR', 'Fourier', 'FourierQR', 'FourierNorm'}, help='DeepONet strategy')
     parser.add_argument('--loss', type=str, default='mse', choices=['mse', 'reg', 'nrg'], help='Loss function')
-    
 
     #wanbd
     parser.add_argument('--wandb_user', type=str, default='moritz-hasuschulz', help='Wandb user')
@@ -70,6 +72,13 @@ def get_args():
     print(args.num_outputs)
 
     args.IC = json.loads(args.IC)
+
+    if 'Fourier' in args.multi_output_strategy:
+        args.num_outputs = int((args.col_N + 1)/2) 
+        print(f'Automatically adjusted num_outputs for Fourier to {args.num_outputs}')
+        args.branch_layers[-1] = args.num_outputs * args.trunk_layers[-1] * 2
+        print(f'Automatically adjusted branch ({args.branch_layers}) and trunk layers ({args.trunk_layers}) for Fourier')
+        print('Automatically adjusted branch and trunk layers for Fourier')
     
     #data
     if args.problem == 'harmonic_oscillator':
@@ -138,6 +147,10 @@ def log_args_to_dict(args):
 
 if __name__ == '__main__':
     args = get_args()
+    assert args.load_data == False, 'Should make new data always'
+    assert args.use_ifft == True, 'Should use IFFT'
+
+
     args_dict = log_args(args)
     data = get_data(args)
     print(args.num_outputs)

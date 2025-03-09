@@ -6,6 +6,8 @@ import torch
 from torch.utils.data import Dataset
 
 def get_data(args):
+    print('getting data')
+    print(args.load_data)
     if args.load_data and os.path.exists(args.data_dir + args.data_config):
         with open(args.data_dir + args.data_config, 'rb') as f:
             data = pickle.load(f)
@@ -15,7 +17,10 @@ def get_data(args):
             data = [get_harmonic_oscillator_data(args), get_harmonic_oscillator_data(args)]
         elif args.problem == '1d_KdV_Soliton':
             assert len(args.IC) == 2, 'Initial conditions for 1d-KdV with Soliton must be a list of length 2.'
-            data = [get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args)]
+            if args.use_ifft:
+                data = [get_1d_KdV_Soliton_data_ifft(args), get_1d_KdV_Soliton_data_ifft(args)]
+            else:
+                data = [get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args)]
         else:
             raise ValueError(f"Problem {args.problem} not recognized.")
     else:
@@ -95,7 +100,7 @@ def get_1d_KdV_Soliton_data(args):
     a = np.random.uniform(args.IC['a'][0], args.IC['a'][1], size=(args.n_branch, 1))  # parameter 1
     c = np.random.uniform(args.IC['c'][0], args.IC['c'][1], size=(args.n_branch, 1))  # parameter 2
     trunk_t =  np.linspace(args.tmin, args.tmax, int((args.tmax-args.tmin)/args.t_res))
-    trunk_x = np.linspace(args.xmin, args.xmax, int((args.xmax-args.xmin)/args.x_res))
+    trunk_x = np.linspace(args.xmin, args.xmax, int((args.xmax-args.xmin)/args.col_N))
 
     X, T = np.meshgrid(trunk_x, trunk_t)
     trunk_data = np.column_stack((T.flatten(), X.flatten()))
@@ -120,3 +125,33 @@ def get_1d_KdV_Soliton_data(args):
 
     return data
 
+def get_1d_KdV_Soliton_data_ifft(args):
+    a = np.random.uniform(args.IC['a'][0], args.IC['a'][1], size=(args.n_branch, 1))  # parameter 1
+    c = np.random.uniform(args.IC['c'][0], args.IC['c'][1], size=(args.n_branch, 1))  # parameter 2
+    trunk_t =  np.linspace(args.tmin, args.tmax, max(1,int((args.tmax-args.tmin)/args.t_res)))
+    trunk_x = np.linspace(args.xmin, args.xmax, args.col_N)
+
+
+    # X, T = np.meshgrid(trunk_x, trunk_t)
+    # trunk_data = np.column_stack((T.flatten(), X.flatten()))
+
+    branch_data = np.concatenate((a,c), axis=1) #n_branch x 2
+    branch_data = np.repeat(branch_data, repeats=trunk_t.shape[0], axis=0)
+    trunk_t = np.tile(trunk_t, (1, args.n_branch)).T
+    # Generate solution for each parameter set
+    y = np.array([exact_soliton(trunk_x, t, c_i, a_i) 
+                  for a_i, c_i, t in zip(branch_data[:,0], branch_data[:,1], trunk_t)])
+    # y = y.reshape(-1, 1).T  # Reshape to match expected format
+    y = y.astype(np.float32).T
+
+    # trunk_data = trunk_t
+    # trunk_data = np.tile(trunk_data, (1, args.n_branch)).T
+
+    x = (branch_data.astype(np.float32), trunk_t.astype(np.float32))
+
+    if args.method == 'deeponet':
+        data = DeepOData(x, y)
+    else:
+        raise ValueError(f"Method {args.method} not implemented as data type.")
+
+    return data
