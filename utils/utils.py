@@ -4,7 +4,7 @@ from typing import List, Union
 import numpy as np
 import torch
 from utils.data import exact_soliton
-
+from scipy.fft import fft, ifft
 
 from deepxde.nn.deeponet_strategy import DeepONetStrategy
 
@@ -249,7 +249,7 @@ class FourierNormStrategy(CustomStrategy):
         arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
         return ((c / 2) / np.cosh(arg) ** 2)  # Stable sech^2 computation
     
-    def call(self, x_func, x_loc, L=2 * np.pi):
+    def call(self, x_func, x_loc, L=2 * np.pi, target_res=1000):
         branch_out_in = self.net.branch(x_func) 
         #transform to complex
         branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
@@ -288,7 +288,7 @@ class FourierNormStrategy(CustomStrategy):
         fourier_energy = torch.sum(torch.abs(four_coef_hat)**2, dim=1) * torch.tensor(L)
         # print(f'squared nrg: {fourier_energy[0]} squared true_nrg: {true_nrg[0]}')
 
-        out = fourier_series(x_loc, four_coef_hat, self.L) #N x 1
+        out = padded_ifft(four_coef_hat, target_res) #N x 1
         out = out.reshape(-1, 1) #for now final output is dim 1
 
         return out, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, fourier_energy)
@@ -378,6 +378,33 @@ class FourierQRStrategy(CustomStrategy):
         out = out.reshape(-1, 1) #for now final output is dim 1
 
         return out, (B_hat.reshape(-1, B.shape[2] * self.net.num_outputs), alpha_hat)
+
+def padded_ifft(four_coef_hat, K):
+    """
+    Compute the inverse Fourier transform with zero-padding to match a target resolution K.
+    
+    Parameters:
+        four_coef_hat (numpy array): The given N Fourier coefficients.
+        K (int): The target number of points for the output resolution.
+    
+    Returns:
+        numpy array: The reconstructed function sampled at K points.
+    """
+    N = len(four_coef_hat)  # Original number of Fourier modes
+
+    # Zero-padding in Fourier space
+    if K > N:
+        pad_left = (K - N) // 2
+        pad_right = K - N - pad_left
+        four_coef_hat_padded = np.pad(four_coef_hat, (pad_left, pad_right), mode='constant')
+    else:
+        # If K <= N, truncate the higher frequencies
+        four_coef_hat_padded = four_coef_hat[:K]
+
+    # Compute the inverse FFT
+    out = np.fft.ifft(four_coef_hat_padded) * (K / N)  # Adjust scaling factor
+
+    return out
 
 def to_complex_tensor(tensor):
     """
