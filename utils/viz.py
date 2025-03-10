@@ -286,9 +286,9 @@ def plot_1d_KdV_Soliton_ifft(args, h, x_res, a, c, model, save_dir):
         #compute energy of y via fourier modes
 
         # y_cumulative = np.cumsum(y**2) * x_res
-        energy_y = np.sum(y**2) * (x_res)  # L2 norm squared times dx
+        energy_y = np.sum(y**2) * (x[1]-x[0])  # L2 norm squared times dx
         # y_hat_cumulative = np.cumsum(y_hat**2) * x_res
-        energy_y_hat = np.sum(y_hat**2) * (x_res)
+        energy_y_hat = np.sum(y_hat**2) * (x[1]-x[0])
         print(f'min and max fourier nrg: {fourier_nrg.min().item()}, {fourier_nrg.max().item()}')
         print(f"Energy at t={t:.1f}: True = {energy_y:.6f}, Predicted = {energy_y_hat:.6f}")
         

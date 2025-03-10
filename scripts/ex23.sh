@@ -15,15 +15,18 @@ counter=1
 for strat in FourierQR; do
     python main.py --problem 1d_KdV_Soliton --device cpu --method deeponet \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \
-            --num_outputs 20 \
-            --tmax 1 \
-            --x_res 0.05 \
+            --col_N 199 \
+            --x_res 1.282 \
             --t_res 0.05 \
-            --epochs 10 --load_data False --loss mse \
+            --tmin 0 \
+            --tmax 3 \
+            --use_ifft True \
+            --epochs 1000 \
+            --loss mse \
             --track_all_losses 0 \
             --multi_output_strategy $strat \
             --branch_weight 0 --trunk_weight 0 \
             --experiment_name "${SCRIPT_NAME}_${counter}" \
-            --IC '{"c": [1,3], "a": [-2,2]}'
+            --IC '{"c": [1,2], "a": [-2,2]}'
         ((counter++))
 done
