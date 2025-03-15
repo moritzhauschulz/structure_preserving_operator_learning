@@ -226,7 +226,11 @@ class FourierStrategy(CustomStrategy):
 
         four_coef_hat = four_coef.unsqueeze(-1) #N x  M+1 x 1
 
-        fourier_energy = torch.sum(torch.abs(four_coef_hat)**2, dim=1) * torch.tensor(L)
+        if self.problem == '1d_KdV_Soliton':
+            fourier_energy = torch.sum(torch.abs(four_coef_hat)**2, dim=1) * torch.tensor(L)
+        elif self.problem == '1d_wave':
+            
+
 
         out = torch.fft.ifft(four_coef_hat.squeeze(-1))
         assert out.imag.abs().max() < 1e-5, f'Imaginary part of fourier coefficients is too large: {four_coef_hat.imag.abs().max()}'

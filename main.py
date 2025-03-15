@@ -15,7 +15,8 @@ def get_args():
     parser = argparse.ArgumentParser(description='Pipeline')
     parser.add_argument('--method', type=str, default='deeponet', 
         choices=[
-            'deeponet'
+            'deeponet',
+            'full_fourier',
         ],
     )
     parser.add_argument('--experiment_name', type=str, required=True, help='Experiment name')
@@ -49,9 +50,14 @@ def get_args():
     #optimizer
     parser.add_argument('--optimizer', type=str, default='Adam', help='Optimizer')
     parser.add_argument('--decay', type=tuple, default=('inverse time', temp_args.epochs // 5, 0.5), help='Decay')
+   
+    #fourier related
+    parser.add_argument('--num_input_fn', type=int, default=1, help='Number of input functions')
+    parser.add_argument('--num_output_fn', type=int, default=1, help='Number of output functions')
+    parser.add_argument('--fourier_input', type=bool, default=False, help='Fourier input')
+    parser.add_argument('--use_ifft', type=bool, default=False, help='Whether to use ifft – only relevant for some problems')
 
     #deeponet
-    parser.add_argument('--use_ifft', type=bool, default=False, help='Whether to use ifft – only relevant for some problems')
     parser.add_argument('--n_branch', type=int, default=50, help='Number of branches')
     parser.add_argument('--n_trunk', type=int, default=1000, help='Number of trunks')
     parser.add_argument('--branch_layers', type=int, nargs='+', default=[3, 128, 128, 128, 4], help='Branch layers')
@@ -73,8 +79,14 @@ def get_args():
 
     args.IC = json.loads(args.IC)
 
+    #adjust architecture
+    if args.fourier_input:
+        args.branch_layers[0] = args.col_N * args.num_input_fn
+    
+    args.branch_layers *= args.num_input_fn
+
     if 'Fourier' in args.multi_output_strategy:
-        args.num_outputs = int((args.col_N + 1)/2) 
+        args.num_outputs = int((args.col_N + 1)/2) * args.num_output_fn
         print(f'Automatically adjusted num_outputs for Fourier to {args.num_outputs}')
         args.branch_layers[-1] = args.num_outputs * args.trunk_layers[-1] * 2
         print(f'Automatically adjusted branch ({args.branch_layers}) and trunk layers ({args.trunk_layers}) for Fourier')
@@ -90,6 +102,12 @@ def get_args():
         if temp_args.IC is None:
             args.IC = {'c': [2.5,2.5], 'a': [-0,0]} #make this harder
         args.data_config = f'_c_{args.IC["c"]}_a_{args.IC["a"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}.pkl'
+
+    if args.problem == '1d_wave':
+        if temp_args.IC is None:
+            args.IC = {'c': 1} #make this harder
+        args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}.pkl'
+
 
     #log
     args.exp_n = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")

@@ -36,6 +36,7 @@ class DeepONetWithGrad(DeepONet):
         return x, gradients
 
 
+
 class CustomDeepONet(nn.Module):
     
     def __init__(self, hidden_branch=[128, 128, 128, 128], hidden_trunk=[128, 128, 128, 128], branch_in=3, trunk_in=1, num_outputs=1, activation=Swish, init='glorot'):

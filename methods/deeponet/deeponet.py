@@ -54,6 +54,7 @@ def main_loop(args, data):
 
     mse_loss = torch.nn.MSELoss()
 
+
     def compute_loss(args,i,model,x,y,log=True):
         preds = model(x)
         if isinstance(preds, tuple):
@@ -236,4 +237,7 @@ def main_loop(args, data):
             plot_1d_KdV_Soliton_ifft(args, h,0.001, a, c, model, save_dir=args.save_plots)
         else:
             plot_1d_KdV_Soliton(args, h,0.001, a, c, model, save_dir=args.save_plots)
+    elif args.problem == '1d_wave':
+        
+
 

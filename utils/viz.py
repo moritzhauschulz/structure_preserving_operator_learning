@@ -308,5 +308,66 @@ def plot_1d_KdV_Soliton_ifft(args, h, x_res, a, c, model, save_dir):
     else:
         plt.show()
 
+def plot_1d_wave_IC(args, x, u0, ut0, save_dir):
+    # Plot Initial Conditions
+    plt.figure(figsize=(10, 4))
+    plt.plot(x, u0, label=r'$u(0, x)$', linewidth=2)
+    plt.plot(x, ut0, label=r'$\partial_t u(0, x)$', linestyle='dashed', linewidth=2)
+    plt.xlabel('x')
+    plt.ylabel('Amplitude')
+    plt.title('Initial Conditions')
+    plt.legend()
+    plt.grid()
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_IC.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+def plot_1d_wave_energy(args, t_vals, energy_values, save_dir):
+    # Plot energy conservation
+    plt.figure(figsize=(8, 4))
+    plt.plot(t_vals, energy_values, label=r'Energy via Parseval’s theorem', color='red')
+    plt.xlabel('Time')
+    plt.ylabel('Energy')
+    plt.title('Exact Energy Conservation of the Wave Equation')
+    plt.legend()
+    plt.grid()
+    plt.show()
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_IC_nrg.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+# Plot wave evolution
+def plot_1d_wave_evolution(args, u_data,save_dir):
+    # Plot heatmap of wave evolution
+    plt.figure(figsize=(8, 5))
+    plt.imshow(u_data, aspect='auto', extent=[-L, L, T, 0], cmap='viridis')
+    plt.colorbar(label='u(t,x)')
+    plt.xlabel('x')
+    plt.ylabel('t')
+    plt.title('Wave Evolution via FFT')
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_preds.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+
+# Plot heatmap of time derivative
+def plot_1d_wave_derivative(args, ut_data, save_dir):
+    plt.figure(figsize=(8, 5))
+    plt.imshow(ut_data, aspect='auto', extent=[-L, L, T, 0], cmap='plasma')
+    plt.colorbar(label=r'$\partial_t u(t,x)$')
+    plt.xlabel('x')
+    plt.ylabel('t')
+    plt.title('Time Derivative of the Wave Equation')
+    plt.show()
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_dt_preds.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+        
+
 
     
