@@ -155,3 +155,34 @@ def get_1d_KdV_Soliton_data_ifft(args):
         raise ValueError(f"Method {args.method} not implemented as data type.")
 
     return data
+
+def get_1d_KdV_Soliton_data_ifft(args):
+    a = np.random.uniform(args.IC['a'][0], args.IC['a'][1], size=(args.n_branch, 1))  # parameter 1
+    c = np.random.uniform(args.IC['c'][0], args.IC['c'][1], size=(args.n_branch, 1))  # parameter 2
+    trunk_t =  np.linspace(args.tmin, args.tmax, max(1,int((args.tmax-args.tmin)/args.t_res)))
+    trunk_x = np.linspace(args.xmin, args.xmax, args.col_N)
+
+
+    # X, T = np.meshgrid(trunk_x, trunk_t)
+    # trunk_data = np.column_stack((T.flatten(), X.flatten()))
+
+    branch_data = np.concatenate((a,c), axis=1) #n_branch x 2
+    branch_data = np.repeat(branch_data, repeats=trunk_t.shape[0], axis=0)
+    trunk_t = np.tile(trunk_t, (1, args.n_branch)).T
+    # Generate solution for each parameter set
+    y = np.array([exact_soliton(trunk_x, t, c_i, a_i) 
+                  for a_i, c_i, t in zip(branch_data[:,0], branch_data[:,1], trunk_t)])
+    # y = y.reshape(-1, 1).T  # Reshape to match expected format
+    y = y.astype(np.float32).T
+
+    # trunk_data = trunk_t
+    # trunk_data = np.tile(trunk_data, (1, args.n_branch)).T
+
+    x = (branch_data.astype(np.float32), trunk_t.astype(np.float32))
+
+    if args.method == 'deeponet':
+        data = DeepOData(x, y)
+    else:
+        raise ValueError(f"Method {args.method} not implemented as data type.")
+
+    return data
