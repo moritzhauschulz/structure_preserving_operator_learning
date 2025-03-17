@@ -11,17 +11,20 @@ counter=1
 #num_ouputs is M+1 (number of fourier modes) (?)
 #then last branch layer should be 2K*(M+1)
 #and last trunk layer should be K 
+# --load_checkpoint methods/deeponet/experiments/ex24_1/exp_n_20250317-211407/models/best_ckpt_epoch_5030.pth \
 
 for strat in Fourier; do
     python main.py --problem 1d_KdV_Soliton --device cpu --method deeponet \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \
             --col_N 199 \
             --x_res 1.282 \
+            --num_input_fn 1 \
+            --num_output_fn 1 \
             --t_res 0.05 \
             --tmin 0 \
             --tmax 3 \
             --use_ifft True \
-            --epochs 10000 \
+            --epochs 10 \
             --loss mse \
             --track_all_losses 0 \
             --multi_output_strategy $strat \

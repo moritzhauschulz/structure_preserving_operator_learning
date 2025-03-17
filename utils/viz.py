@@ -266,37 +266,36 @@ def plot_1d_KdV_Soliton_ifft(args, h, x_res, a, c, model, save_dir):
 
     print(args.xmax, args.xmin, L)
 
+    h=1
+
     t_values = np.arange(args.tmin, args.tmax + h, h)  # Time steps for saving solutions
     x = np.linspace(-L/2, L/2, args.col_N)
 
     plt.figure(figsize=(10, 6))
 
+    # Use a colorblind-friendly palette
+    colors = ['#000000', '#E69F00', '#56B4E9', '#009E73', '#F0E442', '#0072B2', '#D55E00', '#CC79A7']
+    color_cycle = cycle(colors)
+    
     for t in t_values:
         t_tensor = torch.tensor(t).unsqueeze(-1).unsqueeze(-1).float().to(args.device)
         IC = torch.tensor([a, c]).float().unsqueeze(0).to(args.device)
         out = model((IC, t_tensor))
         y_hat = out[0].T.squeeze(-1).detach().cpu().numpy()
-        fourier_nrg = out[1][-1]
         y = exact_soliton(x, t, c, a)
 
         mse_loss = torch.nn.MSELoss()
-
         print(f'mse loss is: {mse_loss(torch.tensor(y),torch.tensor(y_hat))}')
 
-        #compute energy of y via fourier modes
-
-        # y_cumulative = np.cumsum(y**2) * x_res
-        energy_y = np.sum(y**2) * (x[1]-x[0])  # L2 norm squared times dx
-        # y_hat_cumulative = np.cumsum(y_hat**2) * x_res
+        energy_y = np.sum(y**2) * (x[1]-x[0])
         energy_y_hat = np.sum(y_hat**2) * (x[1]-x[0])
-        print(f'min and max fourier nrg: {fourier_nrg.min().item()}, {fourier_nrg.max().item()}')
         print(f"Energy at t={t:.1f}: True = {energy_y:.6f}, Predicted = {energy_y_hat:.6f}")
         
-        print(x.shape, y_hat.shape)
-        plt.plot(x, y, label=f"t = {t:.1f}, nrg={energy_y:.2f}", linestyle='-')
-        plt.plot(x, y_hat, label=f"t = {t:.1f} (predicted), nrg={energy_y_hat:.2f}", linestyle='--')
-        # plt.plot(x, y_cumulative, label=f"t = {t:.1f} (cumulative)", linestyle='-.')
-        # plt.plot(x, y_hat_cumulative, label=f"t = {t:.1f} (predicted cumulative)", linestyle=':')
+        color = next(color_cycle)
+        plt.plot(x, y, label=f"t = {t:.1f}, nrg={energy_y:.3f}", 
+                linestyle='-', color=color)
+        plt.plot(x, y_hat, label=f"t = {t:.1f}, nrg={energy_y_hat:.3f} (predicted)", 
+                linestyle='--', color=color)
 
     plt.xlabel("x")
     plt.ylabel("u(x,t)")
@@ -372,17 +371,18 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None) :
     energy = torch.sum(torch.abs(ut_hat)**2 + args.IC['c']**2 * torch.abs(k * u_hat)**2, dim=1) / args.col_N
 
     #compute the energy with learned u_t
-    u_hat = torch.fft.fft(output, dim=1)
-    ut_hat = torch.fft.fft(outputt, dim=1)
-    energy_learned_new = torch.sum(torch.abs(ut_hat)**2 + args.IC['c']**2 * torch.abs(k * u_hat)**2, dim=1) / args.col_N
+    # u_hat = torch.fft.fft(output, dim=1)
+    # ut_hat = torch.fft.fft(outputt, dim=1)
+    # energy_learned_new = torch.sum(torch.abs(ut_hat)**2 + args.IC['c']**2 * torch.abs(k * u_hat)**2, dim=1) / args.col_N
 
     #compute ground truth energy
-    gt_u_hat = torch.fft.fft(gt_u, dim=1)  # dim=1 since shape is (time, space)
-    gt_ut_hat = torch.fft.fft(gt_ut,dim=1)
-    gt_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+    # gt_u_hat = torch.fft.fft(gt_u, dim=1)  # dim=1 since shape is (time, space)
+    # gt_ut_hat = torch.fft.fft(gt_ut,dim=1)
+    # gt_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
 
     output = output.detach().cpu().numpy()
-    outputt = outputt.detach().cpu().numpy()
+    if args.num_output_fn == 2:
+        outputt = outputt.detach().cpu().numpy()
 
     # Plot heatmap of wave evolution
     plt.figure(figsize=(8, 5))
@@ -408,17 +408,20 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None) :
     else:
         plt.show()
 
-    # Plot heatmap of time derivative
-    plt.figure(figsize=(8, 5))
-    plt.imshow(outputt.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
-    plt.colorbar(label=r'$\partial_t u(t,x)$')
-    plt.xlabel('x')
-    plt.ylabel('t')
-    plt.title('Time Derivative of the Wave Equation')
-    if save_dir:
-        plt.savefig(f"{save_dir}/1d_wave_dt_preds_{i}.png", dpi=300, bbox_inches="tight")
-    else:
-        plt.show()
+    if args.num_output_fn == 2:
+        # Plot heatmap of time derivative
+        plt.figure(figsize=(8, 5))
+        plt.imshow(outputt.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+        plt.colorbar(label=r'$\partial_t u(t,x)$')
+        plt.xlabel('x')
+        plt.ylabel('t')
+        plt.title('Time Derivative of the Wave Equation')
+        if save_dir:
+            plt.savefig(f"{save_dir}/1d_wave_dt_preds_{i}.png", dpi=300, bbox_inches="tight")
+        else:
+            plt.show()
+
+    
 
     # Plot heatmap of grounf thruth time derivative
     plt.figure(figsize=(8, 5))

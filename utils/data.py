@@ -173,8 +173,12 @@ def get_1d_KdV_Soliton_data_ifft(args):
 
     x = (branch_data.astype(np.float32), trunk_t.astype(np.float32))
 
+    print(branch_data.shape)
+    print(trunk_t.shape)
+    print(y.shape)
+
     if args.method == 'deeponet':
-        data = DeepOData(x, y)
+        data = DeepOData(x, y.T)
     else:
         raise ValueError(f"Method {args.method} not implemented as data type.")
 
@@ -277,59 +281,6 @@ def wave_evolve_fft(x_vals, t_vals, c):
 
     return x, t_vals, u_data, ut_data, energy_vals, u0, ut0
 
-
-# def wave_evolve_fft(x_vals,t_vals, c):
-#     """Evolve the wave equation using FFT-based spectral solution."""
-#     Nx = len(x_vals)
-#     Nt = len(t_vals)    
-#     L = x_vals[-1] - x_vals[0]  # Domain length
-
-
-#     k = np.fft.fftfreq(Nx, d=(L/Nx)) * 2 * np.pi  # Wave numbers
-#     alt_k = np.fft.fftfreq(1000, d=(L/1000)) * 2 * np.pi  # Wave numbers
-
-#     # Sample smooth initial conditions
-#     u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_sinusoidal(x_vals, L)
-
-#     # Compute Fourier coefficients for evolution
-#     A_n = u0_hat
-#     B_n = np.zeros_like(A_n)
-#     nonzero_indices = np.abs(k) > 1e-10  
-#     B_n[nonzero_indices] = ut0_hat[nonzero_indices] / (c * k[nonzero_indices])
-#     B_n[0] = ut0_hat[0] / c
-
-#     # Initialize storage
-#     energy_vals = []
-#     alt_energy_vals = []
-#     u_data = np.zeros((Nt, Nx))
-#     ut_data = np.zeros((Nt, Nx))
-
-#     for i, t in enumerate(t_vals):
-#         cos_term = np.cos(c * k * t)
-#         sin_term = np.sin(c * k * t)
-        
-#         # Compute u(x,t) and u_t(x,t) in Fourier space
-#         u_hat_t = A_n * cos_term + B_n * sin_term
-#         ut_hat_t = -c * k * A_n * sin_term + c * k * B_n * cos_term
-
-#         # Transform back to physical space
-#         u_data[i, :] = np.fft.ifft(u_hat_t).real
-#         ut_data[i, :] = np.fft.ifft(ut_hat_t).real
-
-#         # Compute energy using Parseval’s theorem
-#         energy_t = np.sum(np.abs(ut_hat_t)**2 + c**2 * np.abs(k * u_hat_t)**2) / Nx
-#         energy_vals.append(energy_t)
-
-
-#         # Compute energy after reversing inverse fourier transform
-#         # u_t = np.fft.fft(u_data, 1000)
-#         # ut_t = np.fft.fft(ut_data, 1000)
-#         # energy_t = np.sum(np.abs(ut_t)**2 + c**2 * np.abs(alt_k * u_t)**2) / 1000 **2
-#         # alt_energy_vals.append(energy_t)
-
-#     print(f'energy values are {energy_vals}')
-#     print(f'alt energy values are {alt_energy_vals}')
-#     return x, t_vals, u_data, ut_data, energy_vals, u0, ut0
 
 def get_1d_wave_data(args):
     c = args.IC['c']

@@ -198,6 +198,7 @@ class FourierStrategy(CustomStrategy):
         self.problem = args.problem
         self.num_output_fn = args.num_output_fn
         self.IC = args.IC
+        self.i = 0
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
         if layer_sizes_branch[-1] % self.net.num_outputs != 0:
@@ -242,6 +243,8 @@ class FourierStrategy(CustomStrategy):
         four_coef = torch.cat(new_four_coef_list, dim=1)
         energies = compute_energies(self, out, four_coef, x_func, x_loc, x, y)
 
+        self.i += 1
+
         return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, energies)
     
 def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
@@ -253,7 +256,8 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
         u0 = exact_soliton(x, 0, c, a)
         true_energy = torch.sum(torch.abs(u0)**2, dim=0) * dx
         # Compute the current L2 norm squared per batch
-        current_energy = torch.sum(torch.abs(four_coef) ** 2, dim=1, keepdim=True) * torch.tensor(self.L)
+        current_energy = (torch.sum(torch.abs(four_coef) ** 2, dim=1, keepdim=True) * torch.tensor(self.L)).squeeze(-1).squeeze(-1)
+        # print(current_energy.shape)
         learned_energy = None
     elif self.problem == '1d_wave':
 
@@ -265,8 +269,18 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
             #compute current energy
             ut = torch.autograd.grad(outputs=prelim_out, inputs=x_loc, grad_outputs=torch.ones_like(prelim_out), create_graph=True, allow_unused=True)[0] #allow_unused?
             ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
-            u_hat = four_coef
+            u_hat = four_coef.squeeze(-1)
+
+            # print(u_hat.shape)
+            # print(ut_hat.shape)
+
             current_energy = torch.sum(torch.abs(ut_hat)**2 + self.IC['c']**2 * torch.abs(k * u_hat)**2, dim=1) / self.K
+            if self.i % 100 == 0:
+                current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) / self.K
+                current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) / self.K
+                print(f'cur energy ut component: {current_energy_ut_component.mean().item()}')
+                print(f'cur energy u component: {current_energy_u_component.mean().item()}') 
+            
             learned_energy = None
 
         elif self.num_output_fn == 2:
@@ -519,11 +533,13 @@ def project_fourier_coefficients(self, prelim_out, four_coef, x_func, x_loc, x, 
     true_energy, current_energy, learned_energy = compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y)
 
     if self.num_output_fn == 1:
-        norming_energy = learned_energy
-    elif self.num_output_fn == 2:
         norming_energy = current_energy
+    elif self.num_output_fn == 2:
+        norming_energy = learned_energy
     # norming_energy = current_energy if learned_energy is None else learned_energy
 
+    # print(norming_energy.shape)
+    # print(true_energy.shape)
     mask = (norming_energy == 0)
     scaling_factor = torch.zeros_like(true_energy)
     scaling_factor[~mask] = torch.sqrt(true_energy[~mask] / norming_energy[~mask])

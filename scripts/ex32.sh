@@ -15,7 +15,7 @@ counter=1
 #--load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/ex29_1/exp_n_20250317-104119/models/best_ckpt_epoch_330.pth \
 
 
-for strat in FourierNorm; do
+for strat in Fourier; do
     python main.py --problem 1d_wave --device cpu --method deeponet \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \
             --fourier_input True \
