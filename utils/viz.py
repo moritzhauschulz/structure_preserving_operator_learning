@@ -339,18 +339,122 @@ def plot_1d_wave_energy(args, t_vals, energy_values, save_dir):
         plt.show()
 
 # Plot wave evolution
-def plot_1d_wave_evolution(args, u_data,save_dir):
+def plot_1d_wave_evolution(args, i, data, model, save_dir=None) :
+
+    num_t = int((args.tmax - args.tmin)/(args.t_res))
+
+    gt_u = data.labels[:,0,:][i*num_t:(i+1)*num_t].squeeze(-1)
+    gt_ut = data.labels[:,1,:][i*num_t:(i+1)*num_t].squeeze(-1)
+    example_t = data.trunk_data[i*num_t:(i+1)*num_t].to(args.device)
+    example_t.requires_grad_(True)
+    example_u = data.branch_data[i*num_t].view(1,-1).to(args.device)
+
+    x=(data.branch_data[i*num_t].unsqueeze(0).repeat(num_t,1,1),)
+    y=data.labels[i*num_t:(i+1)*num_t,:,:]
+
+    all_output = model((example_u.repeat(num_t, 1), example_t.requires_grad_(True)),x=x,y=y)
+    output = all_output[0]
+    true_energy = all_output[1][-1][0]
+    current_energy = all_output[1][-1][1]
+    learned_energy = all_output[1][-1][2]
+
+    if args.num_output_fn == 2:
+        output_list = [output[:, i*int(output.shape[1]//args.num_output_fn):(i+1)*int(output.shape[1]//args.num_output_fn)] for i in range(args.num_output_fn)]
+        output = output_list[0]
+        outputt = output_list[1]
+
+    #compute energy
+    k = torch.tensor(np.fft.fftfreq(args.col_N, d=((args.xmax-args.xmin)/args.col_N)) * 2* np.pi).to(args.device)  # Wave numbers
+    ut = torch.autograd.grad(outputs=output, inputs=example_t, grad_outputs=torch.ones_like(output), create_graph=True)[0]
+    ut_hat = torch.fft.fft(ut, dim=1)  # dim=1 since shape is (time, space)
+    u_hat = torch.fft.fft(output, dim=1)
+    # Compute energy for each time point
+    energy = torch.sum(torch.abs(ut_hat)**2 + args.IC['c']**2 * torch.abs(k * u_hat)**2, dim=1) / args.col_N
+
+    #compute the energy with learned u_t
+    u_hat = torch.fft.fft(output, dim=1)
+    ut_hat = torch.fft.fft(outputt, dim=1)
+    energy_learned_new = torch.sum(torch.abs(ut_hat)**2 + args.IC['c']**2 * torch.abs(k * u_hat)**2, dim=1) / args.col_N
+
+    #compute ground truth energy
+    gt_u_hat = torch.fft.fft(gt_u, dim=1)  # dim=1 since shape is (time, space)
+    gt_ut_hat = torch.fft.fft(gt_ut,dim=1)
+    gt_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+
+    output = output.detach().cpu().numpy()
+    outputt = outputt.detach().cpu().numpy()
+
     # Plot heatmap of wave evolution
     plt.figure(figsize=(8, 5))
-    plt.imshow(u_data, aspect='auto', extent=[-L, L, T, 0], cmap='viridis')
+    plt.imshow(output.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
     plt.colorbar(label='u(t,x)')
     plt.xlabel('x')
     plt.ylabel('t')
     plt.title('Wave Evolution via FFT')
     if save_dir:
-        plt.savefig(f"{save_dir}/1d_wave_preds.png", dpi=300, bbox_inches="tight")
+        plt.savefig(f"{save_dir}/1d_wave_preds_{i}.png", dpi=300, bbox_inches="tight")
     else:
         plt.show()
+    
+    # Plot heatmap of wave evolution
+    plt.figure(figsize=(8, 5))
+    plt.imshow(gt_u.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+    plt.colorbar(label='u(t,x)')
+    plt.xlabel('x')
+    plt.ylabel('t')
+    plt.title('Wave Evolution via FFT')
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_truth_{i}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+    # Plot heatmap of time derivative
+    plt.figure(figsize=(8, 5))
+    plt.imshow(outputt.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+    plt.colorbar(label=r'$\partial_t u(t,x)$')
+    plt.xlabel('x')
+    plt.ylabel('t')
+    plt.title('Time Derivative of the Wave Equation')
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_dt_preds_{i}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+    # Plot heatmap of grounf thruth time derivative
+    plt.figure(figsize=(8, 5))
+    plt.imshow(gt_ut.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+    plt.colorbar(label=r'$\partial_t u(t,x)$')
+    plt.xlabel('x')
+    plt.ylabel('t')
+    plt.title('Time Derivative of the Wave Equation')
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_dt_ground_truth_{i}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+    
+
+
+    # Plot energy over time
+    plt.figure(figsize=(8, 5))
+    # plt.plot(example_t.detach().cpu().numpy(), energy.detach().cpu().numpy(), label='Energy')
+    # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
+    plt.plot(example_t.detach().cpu().numpy(), true_energy.detach().cpu().numpy(), label='Ground Truth')
+    if learned_energy is not None:
+        plt.plot(example_t.detach().cpu().numpy(), learned_energy.detach().cpu().numpy(), label='Learned Energy')
+    if current_energy is not None:
+        plt.plot(example_t.detach().cpu().numpy(), current_energy.detach().cpu().numpy(), label='Current Energy')
+    # plt.plot(example_t.detach().cpu().numpy(), current_energy.detach().cpu().numpy(), label='Returned Energy')
+    plt.xlabel('Time')
+    plt.ylabel('Energy')
+    plt.title('Energy Evolution')
+    plt.grid(True)
+    plt.legend()
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_energy_{i}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
 
 
 # Plot heatmap of time derivative
@@ -367,7 +471,7 @@ def plot_1d_wave_derivative(args, ut_data, save_dir):
     else:
         plt.show()
 
-        
+
 
 
     

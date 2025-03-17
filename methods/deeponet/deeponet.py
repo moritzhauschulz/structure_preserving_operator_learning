@@ -14,7 +14,7 @@ from tqdm import tqdm
 import torch.nn as nn
 from deepxde.optimizers.pytorch.optimizers import _get_learningrate_scheduler
 
-from utils.viz import visualize_example, visualize_example_with_energy, plot_y_with_initial_conditions, visualize_loss, compute_example_with_energy, wandb_viz_loss, plot_1d_KdV_Soliton, plot_1d_KdV_Soliton_ifft
+from utils.viz import visualize_example, visualize_example_with_energy, plot_y_with_initial_conditions, visualize_loss, compute_example_with_energy, wandb_viz_loss, plot_1d_KdV_Soliton, plot_1d_KdV_Soliton_ifft, plot_1d_wave_evolution
 from utils.model import DeepONetWithGrad
 from utils.data import harmonic_oscillator
 from utils.data import get_data
@@ -56,7 +56,23 @@ def main_loop(args, data):
 
 
     def compute_loss(args,i,model,x,y,log=True):
-        preds = model(x)
+
+        og_y = y
+        og_x = x.copy()
+
+        if args.problem == '1d_wave':
+            if args.num_input_fn == 1:
+                x[0] = x[0][:,0,:].squeeze(-1)
+            else:
+                x[0] = x[0].view(x[0].shape[0], -1)
+            if args.num_output_fn == 1:
+                y = y[:,0,:].squeeze(-1)
+            else:
+                y = y.view(y.shape[0], -1)
+
+        y = y.to(args.device)
+
+        preds = model(x, og_x, og_y)
         if isinstance(preds, tuple):
             (preds, aux) = preds
         else:
@@ -140,8 +156,6 @@ def main_loop(args, data):
         for batch_idx, (x, y) in enumerate(train_loader):
             x[0] = x[0].to(args.device)
             x[1] = x[1].to(args.device)
-            y = y.to(args.device)
-
 
 
             loss, losses = compute_loss(args,i, model, x, y)
@@ -164,7 +178,7 @@ def main_loop(args, data):
             for batch_idx, (x, y) in enumerate(val_loader):
                 x[0] = x[0].to(args.device)
                 x[1] = x[1].to(args.device)
-                y = y.to(args.device)
+                
 
                 loss, losses = compute_loss(args,i, model, x, y)
                 val_loss += loss.item()
@@ -238,6 +252,12 @@ def main_loop(args, data):
         else:
             plot_1d_KdV_Soliton(args, h,0.001, a, c, model, save_dir=args.save_plots)
     elif args.problem == '1d_wave':
+        model.eval()
+        for i in range(args.num_examples):
+            plot_1d_wave_evolution(args, i, train_data, model, save_dir=args.save_plots)
+
+
+
         
 
 

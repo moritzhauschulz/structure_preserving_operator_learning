@@ -146,13 +146,16 @@ class DeepONet(NN):
     def concatenate_outputs(ys):
         return torch.concat(ys, dim=1)
 
-    def forward(self, inputs):
+    def forward(self, inputs, x=None, y=None):
         x_func = inputs[0]
         x_loc = inputs[1]
         # Trunk net input transform
         if self._input_transform is not None:
             x_loc = self._input_transform(x_loc)
-        x = self.multi_output_strategy.call(x_func, x_loc)
+        if x is not None and y is not None:
+            x = self.multi_output_strategy.call(x_func, x_loc, x, y)
+        else:
+            x = self.multi_output_strategy.call(x_func, x_loc)
         if isinstance(x, tuple):
             (x, aux) = x
         else:

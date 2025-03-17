@@ -43,11 +43,9 @@ class DeepOData(Dataset):
         self.trunk_data = torch.tensor(x[1])
         self.labels = torch.tensor(y)
 
-        if len(self.branch_data.shape) > 2:
-            self.branch_data = self.branch_data.view(self.branch_data.shape[0], -1)
-            self.trunk_data = self.trunk_data.view(self.trunk_data.shape[0], -1)
-            self.labels = self.labels.view(self.labels.shape[0], -1)
-            print('flattened data consolidating the last two dimensions')
+        self.trunk_data = self.trunk_data.view(self.trunk_data.shape[0], -1)
+        #     self.labels = self.labels.view(self.labels.shape[0], -1)
+        #     print('flattened data consolidating the last two dimensions')
 
     def __len__(self):
         return len(self.branch_data)  # Total size of the dataset
@@ -182,6 +180,28 @@ def get_1d_KdV_Soliton_data_ifft(args):
 
     return data
 
+def enforce_hermitian_symmetry(u_hat):
+    N = len(u_hat)
+    # Ensure the DC component is real
+    u_hat[0] = np.real(u_hat[0])
+    
+    if N % 2 == 0:
+        # For even N, ensure Nyquist frequency is real
+        u_hat[N//2] = np.real(u_hat[N//2])
+        # Loop over frequencies 1 ... N//2 - 1
+        for k in range(1, N//2):
+            avg = 0.5 * (u_hat[k] + np.conj(u_hat[-k]))
+            u_hat[k] = avg
+            u_hat[-k] = np.conj(avg)
+    else:
+        # For odd N, loop over frequencies 1 ... (N-1)//2
+        for k in range(1, (N+1)//2):
+            avg = 0.5 * (u_hat[k] + np.conj(u_hat[-k]))
+            u_hat[k] = avg
+            u_hat[-k] = np.conj(avg)
+    
+    return u_hat
+
 def wave_sample_initial_conditions_sinusoidal(x_vals, L):
     """Generate smooth initial conditions as a sum of sinusoids, then transform to Fourier space."""
     Nx = len(x_vals)
@@ -198,34 +218,39 @@ def wave_sample_initial_conditions_sinusoidal(x_vals, L):
     u0_hat = np.fft.fft(u0)
     ut0_hat = np.fft.fft(ut0)
 
+    # print("Before enforcement:", np.max(np.abs(u0_hat.imag)))
+
     # Ensure conjugate symmetry for real IFFT
-    u0_hat[Nx//2 + 1:] = np.conj(np.flip(u0_hat[:Nx//2]))
-    ut0_hat[Nx//2 + 1:] = np.conj(np.flip(ut0_hat[:Nx//2]))
+    u0_hat = enforce_hermitian_symmetry(u0_hat)
+    ut0_hat = enforce_hermitian_symmetry(ut0_hat)
+
+    # print("After enforcement:", np.max(np.abs(u0_hat.imag)))
 
     return u0, ut0, u0_hat, ut0_hat, x_vals
 
-def wave_evolve_fft(x_vals,t_vals, c):
+def wave_evolve_fft(x_vals, t_vals, c):
     """Evolve the wave equation using FFT-based spectral solution."""
     Nx = len(x_vals)
     Nt = len(t_vals)    
     L = x_vals[-1] - x_vals[0]  # Domain length
 
-
     k = np.fft.fftfreq(Nx, d=(L/Nx)) * 2 * np.pi  # Wave numbers
 
-    # Sample smooth initial conditions
+    # Sample initial conditions
     u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_sinusoidal(x_vals, L)
 
-    # Compute Fourier coefficients for evolution
+    # Compute Fourier coefficients
     A_n = u0_hat
     B_n = np.zeros_like(A_n)
+    
     nonzero_indices = np.abs(k) > 1e-10  
     B_n[nonzero_indices] = ut0_hat[nonzero_indices] / (c * k[nonzero_indices])
+    B_n[0] = ut0_hat[0] / c  # Handle k=0 case correctly
 
     # Initialize storage
     energy_vals = []
-    u_data = np.zeros((Nt, Nx))
-    ut_data = np.zeros((Nt, Nx))
+    u_data = np.zeros((Nt, Nx), dtype=complex)
+    ut_data = np.zeros((Nt, Nx), dtype=complex)
 
     for i, t in enumerate(t_vals):
         cos_term = np.cos(c * k * t)
@@ -236,16 +261,75 @@ def wave_evolve_fft(x_vals,t_vals, c):
         ut_hat_t = -c * k * A_n * sin_term + c * k * B_n * cos_term
 
         # Transform back to physical space
-        u_data[i, :] = np.fft.ifft(u_hat_t).real
-        ut_data[i, :] = np.fft.ifft(ut_hat_t).real
+        u_ifft = np.fft.ifft(u_hat_t)
+        ut_ifft = np.fft.ifft(ut_hat_t)
+        
+        # Check imaginary part
+        assert np.max(np.abs(u_ifft.imag)) < 1e-5, f"Warning: Nonzero imaginary part detected in u! {np.max(np.abs(u_ifft.imag))} at iteration {i}"
+        assert np.max(np.abs(ut_ifft.imag)) < 1e-5, f"Warning: Nonzero imaginary part detected in ut! {np.max(np.abs(ut_ifft.imag))} at iteration {i}"
 
-        # Compute energy using Parseval’s theorem
+        u_data[i, :] = u_ifft.real
+        ut_data[i, :] = ut_ifft.real
+
+        # Compute energy
         energy_t = np.sum(np.abs(ut_hat_t)**2 + c**2 * np.abs(k * u_hat_t)**2) / Nx
         energy_vals.append(energy_t)
 
-    print(u_data.shape)
-
     return x, t_vals, u_data, ut_data, energy_vals, u0, ut0
+
+
+# def wave_evolve_fft(x_vals,t_vals, c):
+#     """Evolve the wave equation using FFT-based spectral solution."""
+#     Nx = len(x_vals)
+#     Nt = len(t_vals)    
+#     L = x_vals[-1] - x_vals[0]  # Domain length
+
+
+#     k = np.fft.fftfreq(Nx, d=(L/Nx)) * 2 * np.pi  # Wave numbers
+#     alt_k = np.fft.fftfreq(1000, d=(L/1000)) * 2 * np.pi  # Wave numbers
+
+#     # Sample smooth initial conditions
+#     u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_sinusoidal(x_vals, L)
+
+#     # Compute Fourier coefficients for evolution
+#     A_n = u0_hat
+#     B_n = np.zeros_like(A_n)
+#     nonzero_indices = np.abs(k) > 1e-10  
+#     B_n[nonzero_indices] = ut0_hat[nonzero_indices] / (c * k[nonzero_indices])
+#     B_n[0] = ut0_hat[0] / c
+
+#     # Initialize storage
+#     energy_vals = []
+#     alt_energy_vals = []
+#     u_data = np.zeros((Nt, Nx))
+#     ut_data = np.zeros((Nt, Nx))
+
+#     for i, t in enumerate(t_vals):
+#         cos_term = np.cos(c * k * t)
+#         sin_term = np.sin(c * k * t)
+        
+#         # Compute u(x,t) and u_t(x,t) in Fourier space
+#         u_hat_t = A_n * cos_term + B_n * sin_term
+#         ut_hat_t = -c * k * A_n * sin_term + c * k * B_n * cos_term
+
+#         # Transform back to physical space
+#         u_data[i, :] = np.fft.ifft(u_hat_t).real
+#         ut_data[i, :] = np.fft.ifft(ut_hat_t).real
+
+#         # Compute energy using Parseval’s theorem
+#         energy_t = np.sum(np.abs(ut_hat_t)**2 + c**2 * np.abs(k * u_hat_t)**2) / Nx
+#         energy_vals.append(energy_t)
+
+
+#         # Compute energy after reversing inverse fourier transform
+#         # u_t = np.fft.fft(u_data, 1000)
+#         # ut_t = np.fft.fft(ut_data, 1000)
+#         # energy_t = np.sum(np.abs(ut_t)**2 + c**2 * np.abs(alt_k * u_t)**2) / 1000 **2
+#         # alt_energy_vals.append(energy_t)
+
+#     print(f'energy values are {energy_vals}')
+#     print(f'alt energy values are {alt_energy_vals}')
+#     return x, t_vals, u_data, ut_data, energy_vals, u0, ut0
 
 def get_1d_wave_data(args):
     c = args.IC['c']
@@ -255,23 +339,39 @@ def get_1d_wave_data(args):
     Nx = len(x_vals)
     Nt = len(t_vals)
 
-    if args.num_output_fn == 1:
-        print('Only targeting u(t,x) and not derivative. Increase num_pure_output_fn to target both.')
-
     if args.method == 'deeponet' or args.method == 'orthonormal_pushforward':
         branch_data = None
         trunk_t = None
         y = None
         for i in range(args.n_branch):
             x, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(x_vals, t_vals, c)
+            # print(f'energy values are {energy_values}')
 
-            branch_block = np.concatenate((u0.reshape(-1, 1), ut0.reshape(-1, 1)), axis=1).reshape(1,2,-1) #n_branch x 2 x num_x
-            branch_block = np.repeat(branch_block, repeats=t_vals.shape[0], axis=0)
-            if args.num_output_fn == 1:
-                y_block = u_data.reshape(-1,1,Nx)
-            else:
-                y_block = np.concatenate((u_data,ut_data), axis=0).reshape(-1,2,Nx) #n_branch x 2 x num_x 
-            # y_block = y_block.reshape(-1, 1).reshape(1,2,-1) 
+            k = torch.tensor(np.fft.fftfreq(args.col_N, d=((args.xmax-args.xmin)/args.col_N)) * 2* np.pi).float()  # to device?
+
+            branch_block = np.stack([u0,ut0], axis=0)
+            branch_block = np.stack([branch_block] * t_vals.shape[0], axis=0)
+
+            gt_u = torch.tensor(u0[None,:])
+            gt_ut = torch.tensor(ut0[None,:])
+            gt_u_hat = torch.fft.fft(gt_u, n=args.col_N, dim=1)  # dim=1 since shape is (time, space)
+            gt_ut_hat = torch.fft.fft(gt_ut, n=args.col_N, dim=1)
+            init_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+
+            y_block = np.stack([u_data,ut_data], axis=0)
+            y_block = np.stack([u_data, ut_data], axis=0).transpose(1, 0, 2)
+            y_block = y_block.reshape(-1, 2, args.col_N)  # reshape to (time, 2, space)
+
+            gt_u = torch.tensor(u_data)
+            gt_ut = torch.tensor(ut_data)
+
+            gt_u_hat = torch.fft.fft(gt_u, n=args.col_N, dim=1)  # dim=1 since shape is (time, space)
+            gt_ut_hat = torch.fft.fft(gt_ut, n=args.col_N, dim=1)
+            target_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+
+            #check init energy approximately equal to average target energy
+            assert init_energy[0] - torch.mean(target_energy) < 1e-1, f'Initial energy not equal to average target energy. {init_energy[0]} != {torch.mean(target_energy)}'
+
             if branch_data is None:
                 branch_data = branch_block
                 trunk_t = t_vals
@@ -280,10 +380,28 @@ def get_1d_wave_data(args):
                 branch_data = np.concatenate((branch_data, branch_block), axis=0)
                 trunk_t = np.concatenate((trunk_t, t_vals), axis=0)
                 y = np.concatenate((y, y_block), axis=0)
-        
-        y = y.astype(np.float32)
 
         x = (branch_data.astype(np.float32), trunk_t.astype(np.float32))
+        y = y.astype(np.float32)
+
+        #init energy
+        gt_u = torch.tensor(x[0][:,0,:])
+        gt_ut = torch.tensor(x[0][:,1,:])
+
+        gt_u_hat = torch.fft.fft(gt_u, n=args.col_N, dim=1)  # dim=1 since shape is (time, space)
+        gt_ut_hat = torch.fft.fft(gt_ut, n=args.col_N, dim=1)
+        true_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+
+        #target energy
+        gt_u = torch.tensor(y[:,0,:])
+        gt_ut = torch.tensor(y[:,1,:])
+
+        gt_u_hat = torch.fft.fft(gt_u, n=args.col_N, dim=1)  # dim=1 since shape is (time, space)
+        gt_ut_hat = torch.fft.fft(gt_ut, n=args.col_N, dim=1)
+        target_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+
+        assert (true_energy - target_energy).max() < 1, f'Energy is not conserved in training data – max difference was: {(true_energy - target_energy).max()}'
+
         data = DeepOData(x, y)
     elif args.method == 'full_fourier':
         x = None
