@@ -77,7 +77,7 @@ def get_args():
 
     print(args.num_outputs)
 
-    args.IC = json.loads(args.IC)
+    # args.IC = json.loads(args.IC)
 
     #adjust architecture
     if args.fourier_input:
@@ -165,8 +165,8 @@ def log_args_to_dict(args):
 
 if __name__ == '__main__':
     args = get_args()
-    assert args.load_data == False, 'Should make new data always'
-    assert args.use_ifft == True, 'Should use IFFT'
+    # assert args.load_data == False, 'Should make new data always'
+    # assert args.use_ifft == True, 'Should use IFFT'
 
 
     args_dict = log_args(args)

@@ -8,9 +8,11 @@ from torch.utils.data import Dataset
 def get_data(args):
     print('getting data')
     print(args.load_data)
-    if args.load_data and os.path.exists(args.data_dir + args.data_config):
-        with open(args.data_dir + args.data_config, 'rb') as f:
-            data = pickle.load(f)
+    if False:
+        pass
+    # if args.load_data and os.path.exists(args.data_dir + args.data_config):
+    #     with open(args.data_dir + args.data_config, 'rb') as f:
+    #         data = pickle.load(f)
     elif args.method == 'deeponet':
         if args.problem == 'harmonic_oscillator':
             assert len(args.IC) == 3, 'Initial conditions for harmonic oscillator must be a list of length 3.'
@@ -101,8 +103,10 @@ def get_harmonic_oscillator_data(args):
     x = (branch_data.astype(np.float32), trunk_data.astype(np.float32))
     y = y.astype(np.float32)
 
+    print(f'yshape is {y.shape}')
+
     if args.method == 'deeponet':
-        data = DeepOData(x, y)
+        data = DeepOData(x, y.T)
     else:
         raise ValueError(f"Method {args.method} not implemented as data type.")
 

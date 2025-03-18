@@ -9,7 +9,7 @@ counter=1
 
 for strat in  QR orthonormal_branch_normal_trunk_reg; do
     python main.py --problem harmonic_oscillator --device cpu --method deeponet \
-            --branch_layers 3 128 128 128 4 --trunk_layers 1 128 128 128 2 \
+            --branch_layers 3 128 128 128 8 --trunk_layers 1 128 128 128 4 \
             --tmax 10 \
             --epochs 500 --load_data False --loss mse \
             --multi_output_strategy $strat \

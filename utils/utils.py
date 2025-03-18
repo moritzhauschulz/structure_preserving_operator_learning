@@ -25,7 +25,7 @@ class CustomStrategy(DeepONetStrategy):
         )
     
 class OrthonormalBranchNormalTrunkRegStrategy(CustomStrategy):
-    def call(self, x_func, x_loc):
+    def call(self, x_func, x_loc,x,y):
         branch_out = self.net.branch(x_func)
         x_loc = self.net.activation_trunk(self.net.trunk(x_loc))
         shift = 0
@@ -77,7 +77,7 @@ class OrthonormalBranchNormalTrunkStrategy(CustomStrategy):
         return self.net.concatenate_outputs(xs), (branch_out, x_loc) 
     
 class QRStrategy(CustomStrategy):
-    def call(self, x_func, x_loc):
+    def call(self, x_func, x_loc, x, y):
         # print(x_func.shape)
         torch.autograd.set_detect_anomaly(True)
         branch_out_in = self.net.branch(x_func)
@@ -387,54 +387,87 @@ class FourierNormStrategy(CustomStrategy):
     
     def call(self, x_func, x_loc, x=None, y=None):
 
-        x_loc.requires_grad = True
+        if self.problem == '1d_wave':
+            x_loc.requires_grad = True
 
-        branch_out_in = self.net.branch(x_func) 
+            branch_out_in = self.net.branch(x_func) 
+            
+            branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
+            B = to_complex_tensor(branch_out_in)
+            un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
+            un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
+
+            four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1 
+            four_coef_list = [four_coef[:, i*int(self.K//2 + 1):(i+1)*int(self.K//2+1)] for i in range(self.num_output_fn)]
+            prelim_out_list = []
+            prelim_four_coef_list = []
+            for i, four_coef in enumerate(four_coef_list):
+                neg_four_coef = torch.conj(torch.flip(four_coef[:, 1:], dims=[1]))
+                four_coef[:, 0].imag = 0
+                four_coef = torch.cat((four_coef, neg_four_coef), dim=1)
+                four_coef_hat = four_coef.unsqueeze(-1)
+                prelim_out = torch.fft.ifft(four_coef_hat.squeeze(-1)) #* self.K
+                assert prelim_out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {four_coef_hat.imag.abs().max()}'
+                prelim_out_list.append(prelim_out)
+                prelim_four_coef_list.append(four_coef_hat)
+            prelim_out = torch.cat(prelim_out_list, dim=1)
+            prelim_four_coef = torch.cat(prelim_four_coef_list, dim=1)
+
+            # if self.problem == '1d_KdV_Soliton':
+            #     fourier_energy = torch.sum(torch.abs(four_coef_hat)**2, dim=1) * torch.tensor(self.L)
+            # elif self.problem == '1d_wave':
+            #     fourier_energy = None
+
+            assert prelim_out.imag.abs().max() < 1e-4, f'Imaginary part of fourier coefficients is too large: {prelim_out.imag.abs().max()}'
+            four_coef_final, energies = project_fourier_coefficients(self, prelim_out, prelim_four_coef, x_func, x_loc, x, y)
+
+            four_coef_list_final = [four_coef_final[:, i*int(four_coef_final.shape[1]//self.num_output_fn):(i+1)*int(four_coef_final.shape[1]//self.num_output_fn)] for i in range(self.num_output_fn)]
+            out_list = []
+            for four_coef in four_coef_list_final:
+                out = torch.fft.ifft(four_coef, dim=1) #* self.K
+                assert out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {out.imag.abs().max()}'
+                out_list.append(out)
+            out = torch.cat(out_list, dim=1)
+
+            energies = compute_energies(self, out, four_coef_final, x_func, x_loc, x, y)
+
+            # fourier_energy = torch.sum(torch.abs(four_coef_hat) ** 2, dim=1, keepdim=True) * torch.tensor(self.L)
+
+            self.i += 1
+
+            return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, energies)
+        elif self.problem == '1d_KdV_Soliton':
+            branch_out_in = self.net.branch(x_func) 
         
-        branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
-        B = to_complex_tensor(branch_out_in)
-        un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
-        un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
+            branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
+            B = to_complex_tensor(branch_out_in)
+            un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
+            un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
 
-        four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1 
-        four_coef_list = [four_coef[:, i*int(self.K//2 + 1):(i+1)*int(self.K//2+1)] for i in range(self.num_output_fn)]
-        prelim_out_list = []
-        prelim_four_coef_list = []
-        for i, four_coef in enumerate(four_coef_list):
-            neg_four_coef = torch.conj(torch.flip(four_coef[:, 1:], dims=[1]))
-            four_coef[:, 0].imag = 0
+            four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1 
+            neg_four_coef = torch.conj(torch.flip(four_coef[:, 1:], dims=[1]))  # Flip to maintain Hermitian symmetry
+            four_coef[:, 0].imag = 0  # Ensure DC is real
             four_coef = torch.cat((four_coef, neg_four_coef), dim=1)
-            four_coef_hat = four_coef.unsqueeze(-1)
-            prelim_out = torch.fft.ifft(four_coef_hat.squeeze(-1)) #* self.K
-            assert prelim_out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {four_coef_hat.imag.abs().max()}'
-            prelim_out_list.append(prelim_out)
-            prelim_four_coef_list.append(four_coef_hat)
-        prelim_out = torch.cat(prelim_out_list, dim=1)
-        prelim_four_coef = torch.cat(prelim_four_coef_list, dim=1)
 
-        # if self.problem == '1d_KdV_Soliton':
-        #     fourier_energy = torch.sum(torch.abs(four_coef_hat)**2, dim=1) * torch.tensor(self.L)
-        # elif self.problem == '1d_wave':
-        #     fourier_energy = None
+            if (x_func.shape[1]<3):
+                N = 500
+                dx = self.L / N
+                a, c = x_func[:,0], x_func[:,1]
+                x = torch.linspace(-self.L/2, self.L/2, N).unsqueeze(1)
+                u0 = exact_soliton(x, 0, c, a)
+                true_nrg = torch.sum(torch.abs(u0)**2, dim=0) * dx
+            else:
+                raise NotImplementedError('Energy calculation for other problems than 1d KdV not implemented')
 
-        assert prelim_out.imag.abs().max() < 1e-4, f'Imaginary part of fourier coefficients is too large: {prelim_out.imag.abs().max()}'
-        four_coef_final, energies = project_fourier_coefficients(self, prelim_out, prelim_four_coef, x_func, x_loc, x, y)
+            four_coef_hat = old_project_fourier_coefficients(four_coef, true_nrg.unsqueeze(-1), self.L)
 
-        four_coef_list_final = [four_coef_final[:, i*int(four_coef_final.shape[1]//self.num_output_fn):(i+1)*int(four_coef_final.shape[1]//self.num_output_fn)] for i in range(self.num_output_fn)]
-        out_list = []
-        for four_coef in four_coef_list_final:
-            out = torch.fft.ifft(four_coef, dim=1) #* self.K
-            assert out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {out.imag.abs().max()}'
-            out_list.append(out)
-        out = torch.cat(out_list, dim=1)
+            out = torch.fft.ifft(four_coef_hat.squeeze(-1)) * self.K
+            assert out.imag.abs().max() < 1e-5, f'Imaginary part of fourier coefficients is too large: {four_coef_hat.imag.abs().max()}'
 
-        energies = compute_energies(self, out, four_coef_final, x_func, x_loc, x, y)
+            fourier_energy = torch.sum(torch.abs(four_coef_hat) ** 2, dim=1, keepdim=True) * torch.tensor(self.L)
 
-        # fourier_energy = torch.sum(torch.abs(four_coef_hat) ** 2, dim=1, keepdim=True) * torch.tensor(self.L)
+            return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, fourier_energy)
 
-        self.i += 1
-
-        return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, energies)
 
 class FourierQRStrategy(CustomStrategy):
     def __init__(self, args, net):
@@ -517,6 +550,32 @@ class FourierQRStrategy(CustomStrategy):
 
         return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, fourier_energy)
 
+def old_project_fourier_coefficients(four_coef: torch.Tensor, C: float, L: float = 2 * np.pi) -> torch.Tensor:
+    """
+    Projects a batch of Fourier coefficients onto the manifold ∑|c_i|² = C.
+
+    Args:
+        four_coef (torch.Tensor): Tensor of shape [batch_size, num_fourier_modes]
+                                  representing Fourier coefficients.
+        C (float): Desired L2 norm squared (energy level).
+
+    Returns:
+        torch.Tensor: Projected Fourier coefficients of the same shape.
+    """
+    # Compute the current L2 norm squared per batch
+    current_energy = torch.sum(torch.abs(four_coef) ** 2, dim=1, keepdim=True) * torch.tensor(L)
+
+    # Avoid division by zero (replace zero-norm cases with ones)
+    zero_mask = (current_energy == 0)
+    current_energy = torch.where(zero_mask, torch.ones_like(current_energy), current_energy)
+
+    # Compute the scaling factor
+    scaling_factor = torch.sqrt(C / current_energy)
+
+    # Apply projection
+    four_coef_proj = four_coef * scaling_factor
+
+    return four_coef_proj
 
 def project_fourier_coefficients(self, prelim_out, four_coef, x_func, x_loc, x, y) -> torch.Tensor:
     """

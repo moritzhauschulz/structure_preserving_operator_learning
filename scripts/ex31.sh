@@ -18,6 +18,7 @@ counter=1
 for strat in FourierNorm; do
     python main.py --problem 1d_wave --device cpu --method deeponet \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \
+            --load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/ex31_1/exp_n_20250317-143256/models/best_ckpt_epoch_865.pth \
             --fourier_input True \
             --num_input_fn 2 \
             --num_output_fn 1 \
@@ -28,7 +29,7 @@ for strat in FourierNorm; do
             --tmax 3 \
             --lr 1e-3 \
             --use_ifft True \
-            --epochs 1000 \
+            --epochs 100 \
             --n_branch 100 \
             --loss mse \
             --track_all_losses 0 \

@@ -155,7 +155,7 @@ class DeepONet(NN):
         if x is not None and y is not None:
             x = self.multi_output_strategy.call(x_func, x_loc, x, y)
         else:
-            x = self.multi_output_strategy.call(x_func, x_loc)
+            x = self.multi_output_strategy.call(x_func, x_loc, x, y)
         if isinstance(x, tuple):
             (x, aux) = x
         else:

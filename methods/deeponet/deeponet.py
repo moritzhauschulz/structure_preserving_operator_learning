@@ -157,7 +157,6 @@ def main_loop(args, data):
             x[0] = x[0].to(args.device)
             x[1] = x[1].to(args.device)
 
-
             loss, losses = compute_loss(args,i, model, x, y)
 
             optimizer.zero_grad()
@@ -255,6 +254,9 @@ def main_loop(args, data):
         model.eval()
         for i in range(args.num_examples):
             plot_1d_wave_evolution(args, i, train_data, model, save_dir=args.save_plots)
+        for i in range(args.num_examples):
+            plot_1d_wave_evolution(args, i, val_data, model, save_dir=args.save_plots, val=True)
+
 
 
 

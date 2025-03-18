@@ -67,10 +67,11 @@ def visualize_loss(args, train_losses, val_losses):
     plt.savefig(args.save_plots + '/loss_curves.png', dpi=300, bbox_inches='tight')
 
 def compute_example_with_energy(i, args, data, model):
+    dummy = None
     ground_truth = data.labels[i*args.n_trunk:(i+1)*args.n_trunk]
     example_t = data.trunk_data[i*args.n_trunk:(i+1)*args.n_trunk].to(args.device)
     example_u = data.branch_data[i*args.n_trunk].unsqueeze(0).T.to(args.device)
-    output = model((example_u.T.repeat(args.n_trunk, 1), example_t.requires_grad_(True)))
+    output = model((example_u.T.repeat(args.n_trunk, 1), example_t.requires_grad_(True)), dummy, dummy)
     if isinstance(output, tuple):
         output = output[0]
     gradients = torch.autograd.grad(outputs=output[:, 0], inputs=example_t, grad_outputs=torch.ones_like(output[:, 0]), create_graph=True)[0]
@@ -100,6 +101,8 @@ def compute_example_with_energy(i, args, data, model):
     )
 
 def visualize_example_with_energy(example_type, args, label, y, out, out_hat, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, gradients):
+
+    dummy = None
     fig, ax1 = plt.subplots(figsize=(8, 6))
     colors = cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])
 
@@ -110,10 +113,10 @@ def visualize_example_with_energy(example_type, args, label, y, out, out_hat, nr
     legend_labels = []
 
     color = next(colors)
-    line1, = ax1.plot(y, out[:, 0], label=f'position ground truth', linestyle='--', color=color)
-    line2, = ax1.plot(y, out_hat[:, 0], label=f'position prediction', linestyle='solid', color=color)
+    line1, = ax1.plot(y, out[:, 0], label=f'true position', linestyle='--', color=color)
+    line2, = ax1.plot(y, out_hat[:, 0], label=f'predicted position', linestyle='solid', color=color)
     color = next(colors)
-    line3, = ax2.plot(y, nrg, label=f'init energy', linestyle='-', color=color)
+    line3, = ax2.plot(y, nrg, label=f'true energy', linestyle='-', color=color)
     color = next(colors)
     #line4, = ax2.plot(y, nrg_hat, label=f'gradient-predicted energy', linestyle='-.', color=color)
     #color = next(colors)
@@ -121,8 +124,8 @@ def visualize_example_with_energy(example_type, args, label, y, out, out_hat, nr
     lines.extend([line1, line2, line3]) #, line4, line5
     legend_labels.extend([line1.get_label(), line2.get_label(), line3.get_label()]) # line4.get_label(), line5.get_label()
     if args.num_outputs == 2:
-        line6, = ax1.plot(y, out[:, 1], label=f'velocity ground truth', linestyle='--', color=color)
-        line7, = ax1.plot(y, out_hat[:, 1], label=f'velocity prediction', linestyle='solid', color=color)
+        line6, = ax1.plot(y, out[:, 1], label=f'true velocity', linestyle='--', color=color)
+        line7, = ax1.plot(y, out_hat[:, 1], label=f'predicted velocity', linestyle='solid', color=color)
         color = next(colors)
         line8, = ax2.plot(y, vel_nrg_hat, label=f'velocity-predicted energy', linestyle=(0,(1, 1)), color=color)
         color = next(colors)
@@ -132,10 +135,10 @@ def visualize_example_with_energy(example_type, args, label, y, out, out_hat, nr
     ax1.set_xlabel('Time', fontsize=14)
     ax1.set_ylabel('Position / Velocity', fontsize=14)
     ax2.set_ylabel('Energy', fontsize=14)
-    ax1.set_title(f'Prediction vs Ground Truth with Energy – q0={label[0].item():.2f}, p0={label[1].item():.2f}, omega={label[2].item():.2f}', fontsize=16)
+    ax1.set_title(f'Prediction vs Ground Truth with Energy – $q_0$={label[0].item():.2f}, $p_0$={label[1].item():.2f}, $\\omega$={label[2].item():.2f}', fontsize=16)
     ax1.grid(True)
     fig.tight_layout()
-    ax1.legend(lines, legend_labels, fontsize=12, loc='upper right')
+    ax1.legend(lines, legend_labels, fontsize=12, bbox_to_anchor=(1.15, 1), loc='upper left')
 
     #expand plot slightly
     y_min, y_max = plt.ylim()
@@ -282,6 +285,7 @@ def plot_1d_KdV_Soliton_ifft(args, h, x_res, a, c, model, save_dir):
         IC = torch.tensor([a, c]).float().unsqueeze(0).to(args.device)
         out = model((IC, t_tensor))
         y_hat = out[0].T.squeeze(-1).detach().cpu().numpy()
+        fourier_nrg = out[1][-1]
         y = exact_soliton(x, t, c, a)
 
         mse_loss = torch.nn.MSELoss()
@@ -290,11 +294,12 @@ def plot_1d_KdV_Soliton_ifft(args, h, x_res, a, c, model, save_dir):
         energy_y = np.sum(y**2) * (x[1]-x[0])
         energy_y_hat = np.sum(y_hat**2) * (x[1]-x[0])
         print(f"Energy at t={t:.1f}: True = {energy_y:.6f}, Predicted = {energy_y_hat:.6f}")
-        
+        print(f'min and max fourier nrg: {fourier_nrg.min().item()}, {fourier_nrg.max().item()}')
+
         color = next(color_cycle)
         plt.plot(x, y, label=f"t = {t:.1f}, nrg={energy_y:.3f}", 
                 linestyle='-', color=color)
-        plt.plot(x, y_hat, label=f"t = {t:.1f}, nrg={energy_y_hat:.3f} (predicted)", 
+        plt.plot(x, y_hat, label=f"t = {t:.1f}, nrg={fourier_nrg.mean():.3f} (predicted)", 
                 linestyle='--', color=color)
 
     plt.xlabel("x")
@@ -338,7 +343,12 @@ def plot_1d_wave_energy(args, t_vals, energy_values, save_dir):
         plt.show()
 
 # Plot wave evolution
-def plot_1d_wave_evolution(args, i, data, model, save_dir=None) :
+def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
+
+    if val:
+        suffix = '_val'
+    else:
+        suffix = ''
 
     num_t = int((args.tmax - args.tmin)/(args.t_res))
 
@@ -392,7 +402,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None) :
     plt.ylabel('t')
     plt.title('Wave Evolution via FFT')
     if save_dir:
-        plt.savefig(f"{save_dir}/1d_wave_preds_{i}.png", dpi=300, bbox_inches="tight")
+        plt.savefig(f"{save_dir}/1d_wave_preds_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
         plt.show()
     
@@ -404,7 +414,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None) :
     plt.ylabel('t')
     plt.title('Wave Evolution via FFT')
     if save_dir:
-        plt.savefig(f"{save_dir}/1d_wave_truth_{i}.png", dpi=300, bbox_inches="tight")
+        plt.savefig(f"{save_dir}/1d_wave_truth_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
         plt.show()
 
@@ -417,7 +427,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None) :
         plt.ylabel('t')
         plt.title('Time Derivative of the Wave Equation')
         if save_dir:
-            plt.savefig(f"{save_dir}/1d_wave_dt_preds_{i}.png", dpi=300, bbox_inches="tight")
+            plt.savefig(f"{save_dir}/1d_wave_dt_preds_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
         else:
             plt.show()
 
@@ -431,7 +441,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None) :
     plt.ylabel('t')
     plt.title('Time Derivative of the Wave Equation')
     if save_dir:
-        plt.savefig(f"{save_dir}/1d_wave_dt_ground_truth_{i}.png", dpi=300, bbox_inches="tight")
+        plt.savefig(f"{save_dir}/1d_wave_dt_ground_truth_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
         plt.show()
 
@@ -454,7 +464,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None) :
     plt.grid(True)
     plt.legend()
     if save_dir:
-        plt.savefig(f"{save_dir}/1d_wave_energy_{i}.png", dpi=300, bbox_inches="tight")
+        plt.savefig(f"{save_dir}/1d_wave_energy_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
         plt.show()
 
