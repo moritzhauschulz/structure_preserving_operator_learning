@@ -14,7 +14,7 @@ from tqdm import tqdm
 import torch.nn as nn
 from deepxde.optimizers.pytorch.optimizers import _get_learningrate_scheduler
 
-from utils.viz import visualize_example, visualize_example_with_energy, plot_y_with_initial_conditions, visualize_loss, compute_example_with_energy, wandb_viz_loss, plot_1d_KdV_Soliton, plot_1d_KdV_Soliton_ifft, plot_1d_wave_evolution
+from utils.viz import visualize_example, visualize_example_with_energy, plot_y_with_initial_conditions, visualize_loss, compute_example_with_energy, wandb_viz_loss, plot_1d_KdV_Soliton, plot_1d_KdV_Soliton_ifft, plot_1d_wave_evolution, plot_1d_KdV_evolution
 from utils.model import DeepONetWithGrad
 from utils.data import harmonic_oscillator
 from utils.data import get_data
@@ -242,14 +242,18 @@ def main_loop(args, data):
             examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad = compute_example_with_energy(i, args, val_data, model)
             visualize_example_with_energy('val', args, examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad)
     elif args.problem == '1d_KdV_Soliton':
-        h = 0.5
-        a = (args.IC['a'][0] +  args.IC['a'][1])/2
-        c = (args.IC['c'][0] +  args.IC['c'][1])/2
+        # h = 0.5
+        # a = (args.IC['a'][0] +  args.IC['a'][1])/2
+        # c = (args.IC['c'][0] +  args.IC['c'][1])/2
 
-        if args.use_ifft:
-            plot_1d_KdV_Soliton_ifft(args, h,0.001, a, c, model, save_dir=args.save_plots)
-        else:
-            plot_1d_KdV_Soliton(args, h,0.001, a, c, model, save_dir=args.save_plots)
+        # if args.use_ifft:
+        #     plot_1d_KdV_Soliton_ifft(args, h,0.001, a, c, model, save_dir=args.save_plots)
+        # else:
+        #     plot_1d_KdV_Soliton(args, h,0.001, a, c, model, save_dir=args.save_plots)
+        for i in range(args.num_examples):
+            plot_1d_KdV_evolution(args, i, train_data, model, save_dir=args.save_plots)
+        for i in range(args.num_examples):
+            plot_1d_KdV_evolution(args, i, val_data, model, save_dir=args.save_plots, val=True)
     elif args.problem == '1d_wave':
         model.eval()
         for i in range(args.num_examples):

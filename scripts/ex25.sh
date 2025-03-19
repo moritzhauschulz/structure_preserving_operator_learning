@@ -7,6 +7,8 @@ SCRIPT_NAME=$(basename "$0" .sh)
 
 counter=1
 
+# --load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/ex25_1/exp_n_20250317-233944/models/best_ckpt_epoch_9830.pth \
+
 
 #num_ouputs is M+1 (number of fourier modes) (?)
 #then last branch layer should be 2K*(M+1)
@@ -15,8 +17,7 @@ counter=1
 for strat in FourierNorm; do
     python main.py --problem 1d_KdV_Soliton --device cpu --method deeponet \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \
-            --load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/ex25_1/exp_n_20250317-233944/models/best_ckpt_epoch_9830.pth \
-            --col_N 199 \
+            --col_N 499 \
             --x_res 1.282 \
             --num_input_fn 1 \
             --num_output_fn 1 \
@@ -24,7 +25,7 @@ for strat in FourierNorm; do
             --tmin 0 \
             --tmax 3 \
             --use_ifft True \
-            --epochs 10 \
+            --epochs 1000 \
             --loss mse \
             --track_all_losses 0 \
             --multi_output_strategy $strat \

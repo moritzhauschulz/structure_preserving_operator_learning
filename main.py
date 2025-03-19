@@ -77,7 +77,7 @@ def get_args():
 
     print(args.num_outputs)
 
-    # args.IC = json.loads(args.IC)
+    args.IC = json.loads(args.IC)
 
     #adjust architecture
     if args.fourier_input:
@@ -105,9 +105,11 @@ def get_args():
 
     if args.problem == '1d_wave':
         if temp_args.IC is None:
+            print('here')
             args.IC = {'c': 1} #make this harder
-        args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}.pkl'
+    #     args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}.pkl'
 
+    args.data_config = 'test'
 
     #log
     args.exp_n = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")

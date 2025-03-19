@@ -342,6 +342,109 @@ def plot_1d_wave_energy(args, t_vals, energy_values, save_dir):
     else:
         plt.show()
 
+# Plot kdv evolution
+def plot_1d_KdV_evolution(args, i, data, model, save_dir=None, val=False) :
+
+    if val:
+        suffix = '_val'
+    else:    
+        suffix = '' 
+    
+    num_t = int((args.tmax - args.tmin)/(args.t_res))
+
+    gt_u = data.labels[i*num_t:(i+1)*num_t]
+    example_t = data.trunk_data[i*num_t:(i+1)*num_t].to(args.device)
+    example_u = data.branch_data[i*num_t].view(1,-1).to(args.device)
+
+    x=(data.branch_data[i*num_t].unsqueeze(0).repeat(num_t,1,1),)
+    y=data.labels[i*num_t:(i+1)*num_t]
+
+    all_output = model((example_u.repeat(num_t, 1), example_t.requires_grad_(True)),x=x,y=y)
+    output = all_output[0]
+    true_energy = all_output[1][-1][0]
+    current_energy = all_output[1][-1][1]
+    learned_energy = all_output[1][-1][2]
+
+    output = output.detach().cpu().numpy()
+    if args.num_output_fn == 2:
+        outputt = outputt.detach().cpu().numpy()
+
+    # Plot heatmap of kdv evolution
+    plt.figure(figsize=(8, 5))
+    plt.imshow(output.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+    plt.colorbar(label='u(t,x)')
+    plt.xlabel('x')
+    plt.ylabel('t')
+    plt.title('Wave Evolution via FFT')
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_kdv_preds_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+    
+    # Plot heatmap of kdv evolution
+    plt.figure(figsize=(8, 5))
+    plt.imshow(gt_u.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+    plt.colorbar(label='u(t,x)')
+    plt.xlabel('x')
+    plt.ylabel('t')
+    plt.title('Wave Evolution via FFT')
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_kdv_truth_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+    # Plot slice in time of kdv equation ground truth and prediction
+    x = np.linspace(-args.xmin, args.xmin, args.col_N)
+    plt.figure(figsize=(8, 5))
+    
+    # Use a colorblind-friendly palette
+    color_cycle = cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])
+    num_slices = 5
+    
+    for k, t in enumerate(range(0, num_t, num_t//num_slices)):
+        if k >= num_slices:
+            break
+        color = next(color_cycle)
+        plt.plot(x, gt_u[t].squeeze().cpu().numpy(), 
+                label=f't={t*args.t_res:.1f} GT', 
+                color=color)
+        plt.plot(x, output[t], 
+                label=f't={t*args.t_res:.1f} Pred', 
+                color=color, 
+                linestyle='dashed')
+    
+    plt.xlabel('x')
+    plt.ylabel('u')
+    plt.title('KdV Equation: Ground Truth vs Prediction')
+    plt.legend()
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_kdv_slices_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+    # Plot energy over time
+    plt.figure(figsize=(8, 5))
+    plt.plot(example_t.detach().cpu().numpy(), true_energy.detach().cpu().numpy(), label='Ground Truth')
+    if learned_energy is not None:
+        plt.plot(example_t.detach().cpu().numpy(), learned_energy.detach().cpu().numpy(), label='Learned Energy', linestyle='dotted')
+    if current_energy is not None:
+        plt.plot(example_t.detach().cpu().numpy(), current_energy.detach().cpu().numpy(), label='Current Energy', linestyle='dotted')
+    plt.xlabel('Time')
+    plt.ylabel('Energy')
+    plt.title('Energy Evolution')
+    plt.grid(True)
+    plt.legend()
+    
+    # Set y-axis limits to start at 0 and end slightly above max true energy
+    max_true = true_energy.detach().cpu().numpy().max()
+    plt.ylim(bottom=0, top=max_true*1.1)  # End 10% above max true energy
+    
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_kdv_energy_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+
 # Plot wave evolution
 def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
 
@@ -431,22 +534,18 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         else:
             plt.show()
 
-    
-
-    # Plot heatmap of grounf thruth time derivative
-    plt.figure(figsize=(8, 5))
-    plt.imshow(gt_ut.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
-    plt.colorbar(label=r'$\partial_t u(t,x)$')
-    plt.xlabel('x')
-    plt.ylabel('t')
-    plt.title('Time Derivative of the Wave Equation')
-    if save_dir:
-        plt.savefig(f"{save_dir}/1d_wave_dt_ground_truth_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
-    else:
-        plt.show()
-
-    
-
+    # Plot heatmap of ground thruth time derivative
+    if args.num_output_fn == 2:
+        plt.figure(figsize=(8, 5))
+        plt.imshow(gt_ut.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+        plt.colorbar(label=r'$\partial_t u(t,x)$')
+        plt.xlabel('x')
+        plt.ylabel('t')
+        plt.title('Time Derivative of the Wave Equation')
+        if save_dir:
+            plt.savefig(f"{save_dir}/1d_wave_dt_ground_truth_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
+        else:
+            plt.show()
 
     # Plot energy over time
     plt.figure(figsize=(8, 5))
