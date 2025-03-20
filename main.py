@@ -42,9 +42,16 @@ def get_args():
     parser.add_argument('--num_examples', type=int, default=5, help='Number of examples')
     parser.add_argument('--branch_weight', type=float, default=1, help='weight on orthonormality loss')
     parser.add_argument('--trunk_weight', type=float, default=1, help='weight on normality loss')
-    parser.add_argument('--nrg_weight', type=float, default=1, help='weight on nrg loss')
+    parser.add_argument('--nrg_weight', type=float, default=None, help='weight on nrg loss')
+    parser.add_argument('--loss_weights', type=list, default=None, help='weight on nrg loss')
 
     temp_args, _ = parser.parse_known_args()
+
+    #data gen
+    parser.add_argument('--data_dt', type=float, default=0.01, help='weight on nrg loss')
+    parser.add_argument('--data_modes', type=int, default=10, help='weight on nrg loss')
+    parser.add_argument('--zero_zero_mode', type=bool, default=False, help='force zero mode to zero')
+
     
 
     #optimizer
@@ -77,7 +84,8 @@ def get_args():
 
     print(args.num_outputs)
 
-    args.IC = json.loads(args.IC)
+    if args.IC is not None:
+        args.IC = json.loads(args.IC)
 
     #adjust architecture
     if args.fourier_input:
@@ -92,6 +100,10 @@ def get_args():
         print(f'Automatically adjusted branch ({args.branch_layers}) and trunk layers ({args.trunk_layers}) for Fourier')
         print('Automatically adjusted branch and trunk layers for Fourier')
     
+    if args.problem == '1d_wave' and args.method == 'full_fourier':
+        time_period = (args.xmax - args.tmin)/args.IC['c']
+        args.tmax = args.tmin + time_period
+    
     #data
     if args.problem == 'harmonic_oscillator':
         if temp_args.IC is None:
@@ -105,9 +117,11 @@ def get_args():
 
     if args.problem == '1d_wave':
         if temp_args.IC is None:
-            print('here')
-            args.IC = {'c': 1} #make this harder
+            args.IC = {'c': 5, 'type': 'periodic_gp', 'params': {'lengthscale':0.5, 'variance':1.0}} #make this harder
     #     args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}.pkl'
+
+    if args.loss_weights is None:
+        args.loss_weights = [1 for i in range(args.num_output_fn)]
 
     args.data_config = 'test'
 

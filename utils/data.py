@@ -4,6 +4,8 @@ import numpy as np
 from scipy.integrate import solve_ivp
 import torch
 from torch.utils.data import Dataset
+import matplotlib.pyplot as plt
+
 
 def get_data(args):
     print('getting data')
@@ -24,13 +26,13 @@ def get_data(args):
             else:
                 data = [get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args)]
         elif args.problem == '1d_wave':
-            assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
+            # assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
             data = [get_1d_wave_data(args), get_1d_wave_data(args)]
         else:
             raise ValueError(f"Problem {args.problem} not recognized.")
     elif args.method == 'full_fourier':
         if args.problem == '1d_wave':
-            assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
+            # assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
             data = [get_1d_wave_data(args), get_1d_wave_data(args)]
     else:
         raise ValueError(f"Method {args.method} not recognized.")
@@ -58,7 +60,7 @@ class DeepOData(Dataset):
 class SpectralSpaceTime(Dataset):
     def __init__(self, x, y):
         self.x = torch.tensor(x)
-        self.y = torch.tensor(x)
+        self.y = torch.tensor(y)
 
     def __len__(self):
         return len(self.x.shape[0])  # Total size of the dataset
@@ -210,6 +212,81 @@ def enforce_hermitian_symmetry(u_hat):
     
     return u_hat
 
+
+def wave_sample_initial_conditions_periodic_gp(x_vals, L, num_modes, zero_zero_mode=True,lengthscale=1.0, variance=1.0, period=None, noise=1e-6):
+    """
+    Generate smooth initial conditions using a periodic Gaussian process.
+
+    Parameters:
+        x_vals (numpy array): Spatial grid points.
+        L (float): Domain length.
+        lengthscale (float): Controls smoothness.
+        variance (float): Controls amplitude of variations.
+        period (float, optional): Period of the GP. If None, set to L.
+        noise (float): Small noise term for numerical stability.
+
+    Returns:
+        u0 (numpy array): Initial condition in physical space.
+        ut0 (numpy array): Time derivative of initial condition.
+        u0_hat (numpy array): Fourier transform of u0.
+        ut0_hat (numpy array): Fourier transform of ut0.
+        x_vals (numpy array): Spatial grid points.
+    """
+    Nx = len(x_vals)
+    x_vals_modes = np.linspace(x_vals[0], x_vals[-1], num_modes)  # Grid points for GP
+
+
+    # Set period to domain length if not provided
+    if period is None:
+        period = L
+
+    # Define the periodic kernel
+    def periodic_kernel(x1, x2, lengthscale, variance, period):
+        dist = np.abs(np.subtract.outer(x1, x2))  # Compute |x - x'|
+        return variance * np.exp(-2 * (np.sin(np.pi * dist / period) ** 2) / lengthscale**2)
+
+    # Compute covariance matrix
+    K = periodic_kernel(x_vals_modes, x_vals_modes, lengthscale, variance, period)
+    K += noise * np.eye(num_modes)  # Add small noise for numerical stability
+
+    # Sample from the GP prior
+    u0 = np.random.multivariate_normal(mean=np.zeros(num_modes), cov=K)
+    ut0 = np.random.multivariate_normal(mean=np.zeros(num_modes), cov=K)  # Independent sample for velocity
+
+    # Convert to Fourier space
+    u0_hat = np.fft.fft(u0)
+    ut0_hat = np.fft.fft(ut0)
+
+    #zero out the zero-th mode
+    if zero_zero_mode:
+        u0_hat[0] = 0
+        ut0_hat[0] = 0
+
+    # Ensure conjugate symmetry for real IFFT using provided function
+    u0_hat = enforce_hermitian_symmetry(u0_hat)
+    ut0_hat = enforce_hermitian_symmetry(ut0_hat)
+
+    # Pad higher modes with zeros
+    u0_hat_padded = np.zeros(Nx, dtype=complex)
+    ut0_hat_padded = np.zeros(Nx, dtype=complex)
+
+    # Copy non-zero modes
+    u0_hat_padded[:num_modes//2] = u0_hat[:num_modes//2]
+    u0_hat_padded[-num_modes//2:] = u0_hat[-num_modes//2:]
+    ut0_hat_padded[:num_modes//2] = ut0_hat[:num_modes//2]
+    ut0_hat_padded[-num_modes//2:] = ut0_hat[-num_modes//2:]
+
+    # Transform back to physical space with padded spectrum
+    u0 = np.fft.ifft(u0_hat_padded).real * Nx/num_modes
+    ut0 = np.fft.ifft(ut0_hat_padded).real * Nx/num_modes
+
+    # Update Fourier coefficients
+    u0_hat = np.fft.fft(u0) 
+    ut0_hat = np.fft.fft(ut0)
+
+    return u0, ut0, u0_hat, ut0_hat, x_vals
+
+
 def wave_sample_initial_conditions_sinusoidal(x_vals, L):
     """Generate smooth initial conditions as a sum of sinusoids, then transform to Fourier space."""
     Nx = len(x_vals)
@@ -232,59 +309,147 @@ def wave_sample_initial_conditions_sinusoidal(x_vals, L):
     u0_hat = enforce_hermitian_symmetry(u0_hat)
     ut0_hat = enforce_hermitian_symmetry(ut0_hat)
 
+    #recalculate u0 and ut0
+    u0 = np.fft.ifft(u0_hat).real
+    ut0 = np.fft.ifft(ut0_hat).real
+
     # print("After enforcement:", np.max(np.abs(u0_hat.imag)))
 
     return u0, ut0, u0_hat, ut0_hat, x_vals
 
-def wave_evolve_fft(x_vals, t_vals, c):
-    """Evolve the wave equation using FFT-based spectral solution."""
+def wave_evolve_fft(args, x_vals, t_vals, c):
+    """Evolve the wave equation using a high-accuracy numerical spectral method."""
     Nx = len(x_vals)
     Nt = len(t_vals)    
     L = x_vals[-1] - x_vals[0]  # Domain length
+    
+    # Use smaller timestep for integration
+    dt = args.data_dt
+    n_substeps = max(1, int((t_vals[1] - t_vals[0])/dt))
+    dt = (t_vals[1] - t_vals[0])/n_substeps
+    t_fine = np.arange(t_vals[0], t_vals[-1] + dt/2, dt)
 
     k = np.fft.fftfreq(Nx, d=(L/Nx)) * 2 * np.pi  # Wave numbers
 
     # Sample initial conditions
-    u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_sinusoidal(x_vals, L)
-
-    # Compute Fourier coefficients
-    A_n = u0_hat
-    B_n = np.zeros_like(A_n)
+    if args.IC['type'] == 'periodic_gp':
+        u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_periodic_gp(x_vals, L, args.data_modes, zero_zero_mode=args.zero_zero_mode, **args.IC['params'])
+    elif args.IC['type'] == 'sinusoidal':
+        u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_sinusoidal(x_vals, L)
     
-    nonzero_indices = np.abs(k) > 1e-10  
-    B_n[nonzero_indices] = ut0_hat[nonzero_indices] / (c * k[nonzero_indices])
-    B_n[0] = ut0_hat[0] / c  # Handle k=0 case correctly
+    # Define spectral RHS function
+    def spectral_rhs(u_hat, ut_hat, k_vals, c):
+        return - (c**2) * (k_vals**2) * u_hat  # Second derivative in Fourier space
 
     # Initialize storage
+    u_fine = np.zeros((len(t_fine), Nx), dtype=complex)
+    ut_fine = np.zeros((len(t_fine), Nx), dtype=complex)
     energy_vals = []
-    u_data = np.zeros((Nt, Nx), dtype=complex)
-    ut_data = np.zeros((Nt, Nx), dtype=complex)
+    
+    # Initialize Fourier coefficients
+    u_hat = np.copy(u0_hat)
+    ut_hat = np.copy(ut0_hat)
+    
+    # Compute initial energy
+    initial_energy = np.sum(np.abs(ut_hat)**2 + c**2 * np.abs(k * u_hat)**2) * (L / Nx)
+    energy_vals.append(initial_energy)
 
-    for i, t in enumerate(t_vals):
-        cos_term = np.cos(c * k * t)
-        sin_term = np.sin(c * k * t)
+    # Time-stepping using RK4
+    for i in range(len(t_fine)):
+        u_fine[i, :] = np.fft.ifft(u_hat).real
+        ut_fine[i, :] = np.fft.ifft(ut_hat).real
+
+        # Compute Runge-Kutta 4 (RK4) stages
+        k1 = dt * ut_hat
+        l1 = dt * spectral_rhs(u_hat, ut_hat, k, c)
         
-        # Compute u(x,t) and u_t(x,t) in Fourier space
-        u_hat_t = A_n * cos_term + B_n * sin_term
-        ut_hat_t = -c * k * A_n * sin_term + c * k * B_n * cos_term
-
-        # Transform back to physical space
-        u_ifft = np.fft.ifft(u_hat_t)
-        ut_ifft = np.fft.ifft(ut_hat_t)
+        k2 = dt * (ut_hat + 0.5 * l1)
+        l2 = dt * spectral_rhs(u_hat + 0.5 * k1, ut_hat + 0.5 * l1, k, c)
         
-        # Check imaginary part
-        assert np.max(np.abs(u_ifft.imag)) < 1e-5, f"Warning: Nonzero imaginary part detected in u! {np.max(np.abs(u_ifft.imag))} at iteration {i}"
-        assert np.max(np.abs(ut_ifft.imag)) < 1e-5, f"Warning: Nonzero imaginary part detected in ut! {np.max(np.abs(ut_ifft.imag))} at iteration {i}"
+        k3 = dt * (ut_hat + 0.5 * l2)
+        l3 = dt * spectral_rhs(u_hat + 0.5 * k2, ut_hat + 0.5 * l2, k, c)
+        
+        k4 = dt * (ut_hat + l3)
+        l4 = dt * spectral_rhs(u_hat + k3, ut_hat + l3, k, c)
+        
+        # Update values
+        u_hat += (k1 + 2*k2 + 2*k3 + k4) / 6
+        ut_hat += (l1 + 2*l2 + 2*l3 + l4) / 6
 
-        u_data[i, :] = u_ifft.real
-        ut_data[i, :] = ut_ifft.real
-
-        # Compute energy
-        energy_t = np.sum(np.abs(ut_hat_t)**2 + c**2 * np.abs(k * u_hat_t)**2) / Nx
+        # Compute energy at this time step
+        energy_t = np.sum(np.abs(ut_hat)**2 + c**2 * np.abs(k * u_hat)**2) * (L / Nx)
         energy_vals.append(energy_t)
+    
+    # Check energy conservation
+    avg_energy = np.mean(energy_vals)
+    max_energy_dev = np.max(np.abs(np.array(energy_vals) - initial_energy))
+    assert max_energy_dev < 1, f"Energy not conserved! Max deviation: {max_energy_dev}" #tighten this
+    
+    # Extract values at original timepoints
+    t_indices = np.searchsorted(t_fine, t_vals)
+    u_data = u_fine[t_indices]
+    ut_data = ut_fine[t_indices]
+    energy_vals = np.array(energy_vals)[t_indices]
+    
+    return x, t_vals, u_data.real, ut_data.real, energy_vals, u0, ut0
 
-    return x, t_vals, u_data, ut_data, energy_vals, u0, ut0
 
+# def wave_evolve_fft(args, x_vals, t_vals, c):
+#     """Evolve the wave equation using FFT-based spectral solution."""
+#     Nx = len(x_vals)
+#     Nt = len(t_vals)    
+#     L = x_vals[-1] - x_vals[0]  # Domain length
+
+#     k = np.fft.fftfreq(Nx, d=(L/Nx)) * 2 * np.pi  # Wave numbers
+
+#     # Sample initial conditions
+#     if args.IC['type'] == 'periodic_gp':
+#         u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_periodic_gp(x_vals, L, **args.IC['params'])
+#     elif args.IC['type'] == 'sinusoidal':
+#         u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_sinusoidal(x_vals, L)
+
+#     # Compute Fourier coefficients
+#     A_n = u0_hat
+#     B_n = np.zeros_like(A_n)
+    
+#     nonzero_indices = np.abs(k) > 1e-10  
+#     B_n[nonzero_indices] = ut0_hat[nonzero_indices] / (c * k[nonzero_indices])
+#     B_n[0] = ut0_hat[0] / c  # Handle k=0 case correctly
+
+#     # Initialize storage
+#     energy_vals = []
+#     u_data = np.zeros((Nt, Nx), dtype=complex)
+#     ut_data = np.zeros((Nt, Nx), dtype=complex)
+
+#     initial_energy = np.sum(np.abs(ut0_hat)**2 + c**2 * np.abs(k * u0_hat)**2) * L / (Nx ** 2)
+#     print(initial_energy)
+
+#     for i, t in enumerate(t_vals):
+#         cos_term = np.cos(c * k * t)
+#         sin_term = np.sin(c * k * t)
+        
+#         # Compute u(x,t) and u_t(x,t) in Fourier space
+#         u_hat_t = A_n * cos_term + B_n * sin_term
+#         ut_hat_t = -c * k * A_n * sin_term + c * k * B_n * cos_term
+
+#         # Transform back to physical space
+#         u_ifft = np.fft.ifft(u_hat_t)
+#         ut_ifft = np.fft.ifft(ut_hat_t)
+        
+#         # Check imaginary part
+#         assert np.max(np.abs(u_ifft.imag)) < 1e-5, f"Warning: Nonzero imaginary part detected in u! {np.max(np.abs(u_ifft.imag))} at iteration {i}"
+#         assert np.max(np.abs(ut_ifft.imag)) < 1e-5, f"Warning: Nonzero imaginary part detected in ut! {np.max(np.abs(ut_ifft.imag))} at iteration {i}"
+
+#         u_data[i, :] = u_ifft.real
+#         ut_data[i, :] = ut_ifft.real
+
+#         # Compute energy
+#         energy_t = np.sum(np.abs(ut_hat_t)**2 + c**2 * np.abs(k * u_hat_t)**2) * L / (Nx ** 2)
+#         energy_vals.append(energy_t)
+        
+#     print(energy_vals)
+
+#     return x, t_vals, u_data, ut_data, energy_vals, u0, ut0
 
 def get_1d_wave_data(args):
     c = args.IC['c']
@@ -294,12 +459,15 @@ def get_1d_wave_data(args):
     Nx = len(x_vals)
     Nt = len(t_vals)
 
+    print(c)
+
     if args.method == 'deeponet' or args.method == 'orthonormal_pushforward':
         branch_data = None
         trunk_t = None
         y = None
+        L = args.xmax - args.xmin
         for i in range(args.n_branch):
-            x, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(x_vals, t_vals, c)
+            x, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(args, x_vals, t_vals, c)
             # print(f'energy values are {energy_values}')
 
             k = torch.tensor(np.fft.fftfreq(args.col_N, d=((args.xmax-args.xmin)/args.col_N)) * 2* np.pi).float()  # to device?
@@ -309,9 +477,10 @@ def get_1d_wave_data(args):
 
             gt_u = torch.tensor(u0[None,:])
             gt_ut = torch.tensor(ut0[None,:])
-            gt_u_hat = torch.fft.fft(gt_u, n=args.col_N, dim=1)  # dim=1 since shape is (time, space)
-            gt_ut_hat = torch.fft.fft(gt_ut, n=args.col_N, dim=1)
-            init_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+            gt_u_hat = torch.fft.fft(gt_u, dim=1)  # dim=1 since shape is (time, space)
+            gt_ut_hat = torch.fft.fft(gt_ut, dim=1)
+            init_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) * L / (args.col_N ** 2)
+
 
             y_block = np.stack([u_data,ut_data], axis=0)
             y_block = np.stack([u_data, ut_data], axis=0).transpose(1, 0, 2)
@@ -320,9 +489,9 @@ def get_1d_wave_data(args):
             gt_u = torch.tensor(u_data)
             gt_ut = torch.tensor(ut_data)
 
-            gt_u_hat = torch.fft.fft(gt_u, n=args.col_N, dim=1)  # dim=1 since shape is (time, space)
-            gt_ut_hat = torch.fft.fft(gt_ut, n=args.col_N, dim=1)
-            target_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+            gt_u_hat = torch.fft.fft(gt_u, dim=1)  # dim=1 since shape is (time, space)
+            gt_ut_hat = torch.fft.fft(gt_ut, dim=1)
+            target_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) * L / (args.col_N ** 2)
 
             #check init energy approximately equal to average target energy
             assert init_energy[0] - torch.mean(target_energy) < 1e-1, f'Initial energy not equal to average target energy. {init_energy[0]} != {torch.mean(target_energy)}'
@@ -362,9 +531,10 @@ def get_1d_wave_data(args):
         x = None
         y = None
         for i in range(args.n_branch):
-            x_vals, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(x_vals, t_vals, c)
+            x_vals, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(args, x_vals, t_vals, c)
             x_block = np.concatenate((u0.reshape(-1, 1), ut0.reshape(-1, 1)), axis=1).reshape(1,2,-1) #n_branch x 2 x num_x
             y_block = np.concatenate((u_data.reshape(1,Nt,Nx),ut_data.reshape(1,Nt,Nx)), axis=0).reshape(1,2,Nt,Nx) #n_branch x 2 x num_x 
+            print(y_block.shape)
             # y_block = y_block.reshape(-1, 1).reshape(1,2,-1) 
             if x is None:
                 x = x_block
@@ -372,6 +542,8 @@ def get_1d_wave_data(args):
             else:
                 x = np.concatenate((x, x_block), axis=0)
                 y = np.concatenate((y, y_block), axis=0)
+        
+        print(y.shape)
 
         data = SpectralSpaceTime(x, y)
     else:

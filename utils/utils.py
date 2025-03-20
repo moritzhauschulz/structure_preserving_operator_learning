@@ -447,13 +447,15 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
             ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
             u_hat = four_coef.squeeze(-1)
 
-            current_energy = torch.sum(torch.abs(ut_hat)**2 + self.IC['c']**2 * torch.abs(k * u_hat)**2, dim=1) * self.L / (self.K ** 2)
-            if self.i % 100 == 0:
-                current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2)
-                current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
-                print(f'cur energy ut component: {current_energy_ut_component.mean().item()}')
-                print(f'cur energy u component: {current_energy_u_component.mean().item()}') 
+            current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2)
+            current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
+            # print(f'cur energy ut component: {current_energy_ut_component.mean().item()}')
+            # print(f'cur energy u component: {current_energy_u_component.mean().item()}') 
             
+            current_energy = current_energy_ut_component + current_energy_u_component
+
+            learned_energy_ut_component = None
+            learned_energy_u_component = None
             learned_energy = None
 
         elif self.num_output_fn == 2:
@@ -468,25 +470,27 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
             u_hat = coef_list[0].squeeze(-1)
             ut_hat = coef_list[1].squeeze(-1)
 
-            #compute learned energy
-            learned_energy = torch.sum(torch.abs(ut_hat)**2 + self.IC['c']**2 * torch.abs(k * u_hat)**2, dim=1) * self.L / (self.K ** 2)
-            if self.i % 100 == 0:
-                learned_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2)
-                learned_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
-                print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
-                print(f'learned energy u component: {learned_energy_u_component.mean().item()}')
+            #compute learned energy            
+            learned_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2)
+            learned_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
+            # print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
+            # print(f'learned energy u component: {learned_energy_u_component.mean().item()}')
+
+            learned_energy = learned_energy_ut_component + learned_energy_u_component
+
 
             #compute current energy
             ut = torch.autograd.grad(outputs=prelim_out, inputs=x_loc, grad_outputs=torch.ones_like(prelim_out), create_graph=True, allow_unused=True)[0] #allow_unused?
             ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
 
-            current_energy = torch.sum(torch.abs(ut_hat)**2 + self.IC['c']**2 * torch.abs(k * u_hat)**2, dim=1) * self.L / (self.K ** 2)
-            if self.i % 100 == 0:
-                current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2)
-                current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
-                print(f'cur energy ut component: {current_energy_ut_component.mean().item()}')
-                print(f'cur energy u component: {current_energy_u_component.mean().item()}') 
-            
+            current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2)
+            current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
+            # print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
+            # print(f'current energy u component: {current_energy_u_component.mean().item()}') 
+
+            current_energy = current_energy_ut_component + current_energy_u_component
+
+        
 
         if x is not None:
             gt_u = x[0][:,0,:]
@@ -496,29 +500,28 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
 
             gt_u_hat = torch.fft.fft(gt_u, n=self.K, dim=1)  # dim=1 since shape is (time, space)
             gt_ut_hat = torch.fft.fft(gt_ut, n=self.K, dim=1)
-            true_energy = torch.sum(torch.abs(gt_ut_hat)**2 + self.IC['c']**2 * (k ** 2) * torch.abs(gt_u_hat)**2, dim=1) * self.L / (self.K ** 2)
+
+            true_energy_ut_component = torch.sum(torch.abs(gt_ut_hat)**2, dim=1) * self.L / (self.K ** 2)
+            true_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(gt_u_hat)**2, dim=1) * self.L / (self.K ** 2)
+            true_energy = true_energy_ut_component + true_energy_u_component
 
         if y is not None:
             gt_u = y[:,0,:]
             gt_ut = y[:,1,:]
-
-            if self.i % 100 == 0:
-                true_energy_ut_component = torch.sum(torch.abs(gt_ut_hat)**2, dim=1) * self.L / (self.K ** 2)
-                true_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(gt_u_hat)**2, dim=1) * self.L / (self.K ** 2)
-                print(f'true energy ut component: {true_energy_ut_component.mean().item()}')
-                print(f'true energy u component: {true_energy_u_component.mean().item()}') 
 
             gt_u_hat = torch.fft.fft(gt_u, n=self.K, dim=1)  # dim=1 since shape is (time, space)
             gt_ut_hat = torch.fft.fft(gt_ut, n=self.K, dim=1)
             target_energy = torch.sum(torch.abs(gt_ut_hat)**2 + self.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) * self.L / (self.K ** 2)
 
         assert (true_energy-target_energy).abs().max() < 1, f'max difference between true energy and target energy is {(true_energy-target_energy).abs().max().item()}'
-
-        
     else:
         raise NotImplementedError('Energy calculation for other problems than 1d wave not implemented')
     
-    return true_energy, current_energy, learned_energy
+    energy_components = {'true_energy_u_component': true_energy_u_component, 'true_energy_ut_component': true_energy_ut_component, 
+                         'current_energy_u_component': current_energy_u_component, 'current_energy_ut_component': current_energy_ut_component,
+                         'learned_energy_u_component': learned_energy_u_component, 'learned_energy_ut_component': learned_energy_ut_component}
+        
+    return true_energy, current_energy, learned_energy, energy_components
 
 # def old_project_fourier_coefficients(four_coef: torch.Tensor, C: float, L: float = 2 * np.pi) -> torch.Tensor:
 #     """
@@ -559,7 +562,7 @@ def project_fourier_coefficients(self, prelim_out, four_coef, x_func, x_loc, x, 
     Returns:
         torch.Tensor: Projected Fourier coefficients of the same shape.
     """
-    true_energy, current_energy, learned_energy = compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y)
+    true_energy, current_energy, learned_energy, energy_components = compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y)
 
     if self.num_output_fn == 1:
         norming_energy = current_energy
@@ -587,7 +590,7 @@ def project_fourier_coefficients(self, prelim_out, four_coef, x_func, x_loc, x, 
     # if self.i > 1:
     #     assert (learned_energy - true_energy).abs().max() < 1, f'Energy is not conserved after projection – max difference was: {(learned_energy - true_energy).abs().max().item()}'
 
-    return four_coef_proj, (true_energy, current_energy, learned_energy)
+    return four_coef_proj, (true_energy, current_energy, learned_energy, energy_components)
     
 
 def padded_ifft(four_coef_hat, K):

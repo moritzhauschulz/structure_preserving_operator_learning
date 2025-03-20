@@ -497,9 +497,39 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     if args.num_output_fn == 2:
         outputt = outputt.detach().cpu().numpy()
 
+    # Plot slice in time of kdv equation ground truth and prediction
+    x = np.linspace(-args.xmin, args.xmin, args.col_N)
+    plt.figure(figsize=(8, 5))
+    
+    # Use a colorblind-friendly palette
+    color_cycle = cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])
+    num_slices = 5
+    
+    for k, t in enumerate(range(0, num_t, num_t//num_slices)):
+        if k >= num_slices:
+            break
+        color = next(color_cycle)
+        plt.plot(x, gt_u[t].squeeze().cpu().numpy(), 
+                label=f't={t*args.t_res:.1f} GT', 
+                color=color)
+        plt.plot(x, output[t], 
+                label=f't={t*args.t_res:.1f} Pred', 
+                color=color, 
+                linestyle='dashed')
+    
+    plt.xlabel('x')
+    plt.ylabel('u')
+    plt.title('Wave Equation: Ground Truth vs Prediction')
+    plt.legend()
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_kdv_slices_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+    
+
     # Plot heatmap of wave evolution
     plt.figure(figsize=(8, 5))
-    plt.imshow(output.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+    plt.imshow(output, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
     plt.colorbar(label='u(t,x)')
     plt.xlabel('x')
     plt.ylabel('t')
@@ -511,7 +541,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     
     # Plot heatmap of wave evolution
     plt.figure(figsize=(8, 5))
-    plt.imshow(gt_u.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+    plt.imshow(gt_u, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
     plt.colorbar(label='u(t,x)')
     plt.xlabel('x')
     plt.ylabel('t')
@@ -524,7 +554,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     if args.num_output_fn == 2:
         # Plot heatmap of time derivative
         plt.figure(figsize=(8, 5))
-        plt.imshow(outputt.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+        plt.imshow(outputt, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
         plt.colorbar(label=r'$\partial_t u(t,x)$')
         plt.xlabel('x')
         plt.ylabel('t')
@@ -537,7 +567,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     # Plot heatmap of ground thruth time derivative
     if args.num_output_fn == 2:
         plt.figure(figsize=(8, 5))
-        plt.imshow(gt_ut.T, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
+        plt.imshow(gt_ut, aspect='auto', extent=[args.xmin, args.xmax, args.tmin, args.tmax], cmap='viridis')
         plt.colorbar(label=r'$\partial_t u(t,x)$')
         plt.xlabel('x')
         plt.ylabel('t')
@@ -553,9 +583,9 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
     plt.plot(example_t.detach().cpu().numpy(), true_energy.detach().cpu().numpy(), label='Ground Truth')
     if learned_energy is not None:
-        plt.plot(example_t.detach().cpu().numpy(), learned_energy.detach().cpu().numpy(), label='Learned Energy')
+        plt.plot(example_t.detach().cpu().numpy(), learned_energy.detach().cpu().numpy(), label='Learned Energy', linestyle='dotted')
     if current_energy is not None:
-        plt.plot(example_t.detach().cpu().numpy(), current_energy.detach().cpu().numpy(), label='Current Energy')
+        plt.plot(example_t.detach().cpu().numpy(), current_energy.detach().cpu().numpy(), label='Current Energy', linestyle='dotted')
     # plt.plot(example_t.detach().cpu().numpy(), current_energy.detach().cpu().numpy(), label='Returned Energy')
     plt.xlabel('Time')
     plt.ylabel('Energy')

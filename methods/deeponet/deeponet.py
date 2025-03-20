@@ -54,7 +54,6 @@ def main_loop(args, data):
 
     mse_loss = torch.nn.MSELoss()
 
-
     def compute_loss(args,i,model,x,y,log=True):
 
         og_y = y
@@ -78,15 +77,19 @@ def main_loop(args, data):
         else:
             aux = None
 
-        # print(preds[0,:])
-        # print(y[0,:])
 
         losses = {}
+        main_loss = torch.tensor(0.0, device=args.device)
+        block_n = preds.shape[1]//args.num_output_fn
         if torch.is_complex(preds):
-            main_loss = mse_complex(preds, y)
+            for i in range(args.num_output_fn):
+                losses[f'loss_{i}'] = mse_complex(preds[:,block_n*i:block_n*(i+1)], y[:,block_n*i:block_n*(i+1)])
+                main_loss += losses[f'loss_{i}']
+                print(losses[f'loss_{i}'])
         else:
-            main_loss = mse_loss(preds, y)
-        loss = main_loss
+            for i in range(args.num_output_fn):
+                losses[f'loss_{i}'] = mse_loss(preds[:,block_n*i:block_n*(i+1)], y[:,block_n*i:block_n*(i+1)])
+                main_loss += losses[f'loss_{i}']
         losses['mse_loss'] = main_loss
 
         # print(f'args.track_all_losses is {args.track_all_losses}')
@@ -115,7 +118,7 @@ def main_loop(args, data):
         #     elif not args.loss == 'mse':
         #         raise ValueError(f'Loss {args.loss} not recognized')
             
-        return loss, losses
+        return main_loss, losses
 
     def compute_nrg_loss(args,x, y, preds):
         # print(y.shape)
@@ -186,17 +189,7 @@ def main_loop(args, data):
                     if key not in epoch_losses:
                         epoch_losses[key] = []
                     epoch_losses[key].append(value.item())
-            # for batch_idx, (x, y) in enumerate(train_loader):
-            #     x[0] = x[0].to(args.device)
-            #     x[1] = x[1].to(args.device)
-            #     y = y.to(args.device)
 
-            #     loss, losses = compute_loss(args,i, model, y)
-            #     for key, value in losses.items():
-            #         key = f'{key}_train'
-            #         if key not in epoch_losses:
-            #             epoch_losses[key] = []
-            #         epoch_losses[key].append(value.item())
             pbar.set_description(f'epoch {i}; loss {train_loss}; val_loss {val_loss}')
             val_losses.append(val_loss)
             train_losses.append(train_loss)
