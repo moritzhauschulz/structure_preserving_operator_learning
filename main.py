@@ -8,6 +8,7 @@ import wandb
 import json
 
 from methods.deeponet.deeponet import main_loop as deeponet_main_loop
+from methods.full_fourier.full_fourier import main_loop as full_fourier_main_loop
 from filelock import FileLock
 
 def get_args():
@@ -27,7 +28,8 @@ def get_args():
     parser.add_argument('--xmax', type=int, default=25, help='Maximum x')
     parser.add_argument('--xmin', type=int, default=-25, help='Minimum x')
     parser.add_argument('--x_res', type=float, default=0.1, help='x resolution')
-    parser.add_argument('--col_N', type=int, default=39, help='Number of Collocation Points')
+    parser.add_argument('--Nx', type=int, default=49, help='Number of Collocation Points in Space')
+    parser.add_argument('--Nt', type=int, default=49, help='Number of Collocation Points in Time')
     parser.add_argument('--load_data', type=bool, default=False, help='Load data')
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load model')
     parser.add_argument('--save_data', type=bool, default=True, help='Save data')
@@ -44,6 +46,7 @@ def get_args():
     parser.add_argument('--trunk_weight', type=float, default=1, help='weight on normality loss')
     parser.add_argument('--nrg_weight', type=float, default=None, help='weight on nrg loss')
     parser.add_argument('--loss_weights', type=list, default=None, help='weight on nrg loss')
+    parser.add_argument('--hidden_layers', type=int, nargs='+', default=[128, 128, 128], help='Branch layers')
 
     temp_args, _ = parser.parse_known_args()
 
@@ -63,6 +66,8 @@ def get_args():
     parser.add_argument('--num_output_fn', type=int, default=1, help='Number of output functions')
     parser.add_argument('--fourier_input', type=bool, default=False, help='Fourier input')
     parser.add_argument('--use_ifft', type=bool, default=False, help='Whether to use ifft – only relevant for some problems')
+    parser.add_argument('--activation', type=str, default='swish', help='Trunk layers')
+    parser.add_argument('--num_inputs', type=int, default=1, help='Number of inputs')
 
     #deeponet
     parser.add_argument('--n_branch', type=int, default=50, help='Number of branches')
@@ -70,7 +75,7 @@ def get_args():
     parser.add_argument('--branch_layers', type=int, nargs='+', default=[3, 128, 128, 128, 4], help='Branch layers')
     parser.add_argument('--trunk_layers', type=int, nargs='+', default=[1, 128, 128, 2], help='Trunk layers')
     parser.add_argument('--deepo_activation', type=str, default='tanh', help='Trunk layers')
-    parser.add_argument('--multi_output_strategy', type=str, default=None, choices={'independent','split_both','split_branch','split_trunk','orthonormal_branch_normal_trunk', 'normal_trunk', 'orthonormal_trunk', 'orthonormal_branch_normal_trunk_reg', 'QR', 'Fourier', 'FourierQR', 'FourierNorm'}, help='DeepONet strategy')
+    parser.add_argument('--strategy', type=str, default=None, choices={'independent','split_both','split_branch','split_trunk','orthonormal_branch_normal_trunk', 'normal_trunk', 'orthonormal_trunk', 'orthonormal_branch_normal_trunk_reg', 'QR', 'Fourier', 'FourierQR', 'FourierNorm', 'FullFourier'}, help='DeepONet strategy')
     parser.add_argument('--loss', type=str, default='mse', choices=['mse', 'reg', 'nrg'], help='Loss function')
 
     #wanbd
@@ -82,26 +87,30 @@ def get_args():
 
     args = parser.parse_args()
 
-    print(args.num_outputs)
-
     if args.IC is not None:
         args.IC = json.loads(args.IC)
 
     #adjust architecture
     if args.fourier_input:
-        args.branch_layers[0] = args.col_N * args.num_input_fn
+        args.branch_layers[0] = args.Nx * args.num_input_fn
     
     args.branch_layers *= args.num_input_fn
 
-    if 'Fourier' in args.multi_output_strategy:
-        args.num_outputs = int((args.col_N + 1)/2) * args.num_output_fn
+    if 'Fourier' in args.strategy and args.method == 'deeponet':
+        args.num_outputs = int((args.Nx + 1)/2) * args.num_output_fn
         print(f'Automatically adjusted num_outputs for Fourier to {args.num_outputs}')
         args.branch_layers[-1] = args.num_outputs * args.trunk_layers[-1] * 2
         print(f'Automatically adjusted branch ({args.branch_layers}) and trunk layers ({args.trunk_layers}) for Fourier')
         print('Automatically adjusted branch and trunk layers for Fourier')
+
+    if args.method == 'full_fourier':
+        args.num_inputs = args.num_input_fn * args.Nx 
+        args.num_outputs = args.num_output_fn * args.Nx * (args.Nt //2 + 1) * 2 # *2 for complex
+
     
     if args.problem == '1d_wave' and args.method == 'full_fourier':
         time_period = (args.xmax - args.tmin)/args.IC['c']
+        print('Forced time domain length to equal time periodicity')
         args.tmax = args.tmin + time_period
     
     #data

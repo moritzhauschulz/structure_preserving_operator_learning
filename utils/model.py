@@ -1,7 +1,7 @@
 import torch 
 import torch.nn as nn
 from .deeponet import DeepONet
-
+from utils.utils import FullFourierStrategy #, FullFourierNormStrategy
 
 
 class Swish(nn.Module):
@@ -98,6 +98,55 @@ class CustomDeepONet(nn.Module):
         
 
         return out
+    
+class FullFourier(nn.Module):
+    def __init__(self, args, hidden_layers, activation=Swish, num_outputs=1, num_inputs=1, init='glorot', strategy='Fourier'):
+        super(FullFourier, self).__init__()
+        self.hidden_layers = hidden_layers
+        activation_dict = {'swish': Swish, 'relu': nn.ReLU(), 'tanh': nn.Tanh()}
+        self.activation = activation_dict[activation]
+        self.num_outputs = num_outputs
+        self.init =init
+
+        self.layers_list = []
+        self.layers_list.append(nn.Linear(num_inputs, hidden_layers[0]))
+        self.layers_list.append( self.activation())
+        for (i, layer) in enumerate(hidden_layers[:-1]):
+            self.layers_list.append(nn.Linear(layer, hidden_layers[i+1]))
+            self.layers_list.append( self.activation())
+        self.layers_list.append(nn.Linear(hidden_layers[-1], num_outputs))
+        self.layers = nn.Sequential(
+            *self.layers_list
+        )
+
+        if strategy == 'FullFourier':
+            self.strategy = FullFourierStrategy(args, self)
+        elif strategy == 'FullFourierNorm':
+            self.strategy = FullFourierNormStrategy(args, self)
+
+        # apply initialization
+        if init == "glorot":
+            self.apply(self.glorot_initialization)
+
+    def glorot_initialization(self, layer):
+        """
+        Applies Glorot Initialization to the weights of the given layer.
+        """
+        if isinstance(layer, nn.Linear):
+            nn.init.xavier_uniform_(layer.weight)  # Apply Glorot initialization to weights
+            if layer.bias is not None:
+                nn.init.zeros_(layer.bias)  # Initialize biases to zero
+    
+    def forward(self, input,x=None, y=None):
+        out = self.layers(input)
+        return self.strategy.call(out, x, y)
+
+        
+    
+
+    
+
+
     
 
 

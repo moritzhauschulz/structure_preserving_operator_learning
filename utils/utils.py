@@ -194,7 +194,7 @@ class FourierStrategy(CustomStrategy):
         super(FourierStrategy, self).__init__(net)
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
         self.L = args.xmax - args.xmin
-        self.K = args.col_N
+        self.K = args.Nx
         self.problem = args.problem
         self.num_output_fn = args.num_output_fn
         self.IC = args.IC
@@ -252,7 +252,7 @@ class FourierNormStrategy(CustomStrategy):
         super(FourierNormStrategy, self).__init__(net)
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
         self.L = args.xmax - args.xmin
-        self.K = args.col_N
+        self.K = args.Nx
         self.problem = args.problem
         self.IC = args.IC
         self.num_output_fn = args.num_output_fn
@@ -358,7 +358,7 @@ class FourierQRStrategy(CustomStrategy):
         super(FourierQRStrategy, self).__init__(net)
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
         self.L = args.xmax - args.xmin
-        self.K = args.col_N
+        self.K = args.Nx
         self.problem = args.problem
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
@@ -425,6 +425,7 @@ class FourierQRStrategy(CustomStrategy):
         return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, fourier_energy)
 
 def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
+    if self.method == 'deeponet':
     if self.problem == '1d_KdV_Soliton':
         N = 500
         dx = self.L / N
@@ -523,32 +524,6 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
         
     return true_energy, current_energy, learned_energy, energy_components
 
-# def old_project_fourier_coefficients(four_coef: torch.Tensor, C: float, L: float = 2 * np.pi) -> torch.Tensor:
-#     """
-#     Projects a batch of Fourier coefficients onto the manifold ∑|c_i|² = C.
-
-#     Args:
-#         four_coef (torch.Tensor): Tensor of shape [batch_size, num_fourier_modes]
-#                                   representing Fourier coefficients.
-#         C (float): Desired L2 norm squared (energy level).
-
-#     Returns:
-#         torch.Tensor: Projected Fourier coefficients of the same shape.
-#     """
-#     # Compute the current L2 norm squared per batch
-#     current_energy = torch.sum(torch.abs(four_coef) ** 2, dim=1, keepdim=True) * torch.tensor(L)
-
-#     # Avoid division by zero (replace zero-norm cases with ones)
-#     zero_mask = (current_energy == 0)
-#     current_energy = torch.where(zero_mask, torch.ones_like(current_energy), current_energy)
-
-#     # Compute the scaling factor
-#     scaling_factor = torch.sqrt(C / current_energy)
-
-#     # Apply projection
-#     four_coef_proj = four_coef * scaling_factor
-
-#     return four_coef_proj
 
 def project_fourier_coefficients(self, prelim_out, four_coef, x_func, x_loc, x, y) -> torch.Tensor:
     """
@@ -645,3 +620,105 @@ def print_summary(data):
     print(f"Minimum: {min_val}")
     print(f"Maximum: {max_val}")
 
+class FullFourierStrategy():
+    def __init__(self, args, net):
+        self.net = net
+        assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
+        self.L = args.xmax - args.xmin
+        self.T = args.tmax - args.tmin
+        self.Nx = args.Nx
+        self.Nt = args.Nt
+        self.problem = args.problem
+        self.num_output_fn = args.num_output_fn
+        self.IC = args.IC
+        self.i = 0
+
+    def call(self, out, x=None, y=None):
+        four_coef = out
+        # Combine real and imaginary parts into complex tensor
+        four_coef = to_complex_tensor(four_coef)
+        four_coef = four_coef.view(-1, self.Nx * self.num_output_fn, (self.Nt // 2) + 1)
+
+        four_coef.view(-1, self.Nx * self.num_output_fn, self.Nt // 2 + 1)
+
+        four_coef_list = [four_coef[:,i*int(self.Nx):(i+1)*int(self.Nx),:] for i in range(self.num_output_fn)]
+        out_list = []
+        new_four_coef_list = []
+        for four_coef in four_coef_list:
+
+            # use constructor to complete matrix
+            F_full = construct_full_fourier_matrix(self.Nx, self.Nt, four_coef)
+
+            f_full = torch.fft.ifftn(F_full, dim=(-2, -1))
+            check_ifft_real(f_full)
+            out_list.append(f_full)
+            new_four_coef_list.append(F_full)
+        out = torch.cat(out_list, dim=1)
+        four_coef = torch.cat(new_four_coef_list, dim=1)
+        energies = compute_energies(self, out, four_coef, x_func, x_loc, x, y)
+
+        self.i += 1
+
+        return out.real #, (energies)
+
+def construct_full_fourier_matrix(Nx, Nt, F_half):
+    """
+    Construct a Hermitian-symmetric matrix efficiently without redundancy.
+    
+    Args:
+        Nx (int): Number of spatial frequencies.
+        Nt (int): Number of time frequencies.
+    
+    Returns:
+        F_full (torch.Tensor): Full Hermitian-symmetric matrix of shape (Nx, Nt).
+    """
+
+    Nt_half = Nt // 2 + 1
+    assert F_half.shape[-1] == Nt // 2 + 1, 'time dimension is off in the half fourier matrix'
+    assert F_half.shape[-2] == Nx, 'time dimension is off in the half fourier matrix'
+
+    if Nx % 2 == 0:
+        F_half[:,Nx//2+1:,0] = torch.conj(torch.flip(F_half[:,1:Nx//2,0], dims=[1]))
+        F_half[:,Nx//2,0] = F_half[:,Nx//2,0].real.clone()  # Nyquist row
+        F_half[:,Nx//2+1:, -1] = torch.conj(torch.flip(F_half[:,1:Nx//2,-1], dims=[1]))
+    else:
+        F_half[:,Nx//2+1:,0] = torch.conj(torch.flip(F_half[:,1:Nx//2+1 ,0], dims=[1]))
+        F_half[:,Nx//2+1:, -1] = torch.conj(torch.flip(F_half[:,1:Nx//2+1,-1], dims=[1]))
+    
+    if Nt % 2 == 0:
+        F_half[:,0, -1] = F_half[:,0, -1].real.clone()  # Clone before modifying Nyquist column
+        
+
+    F_full = torch.empty(F_half.shape[0],Nx, Nt, dtype=torch.complex64)
+
+    # Copy non-negative frequencies
+    F_full[:,:, :Nt_half] = F_half
+
+    if Nt % 2 == 0:
+        F_full[:,0,Nt//2+1:] = torch.conj(torch.flip(F_full[:,0,1:Nt//2], dims=[1]))
+        F_full[:,1:,Nt//2+1:] = torch.conj(torch.flip(F_half[1:,1:-1],dims=[-2,-1]))
+    else:
+        F_full[:,0,Nt//2+1:] = torch.conj(torch.flip(F_full[:,0,1:Nt//2 + 1], dims=[0]))
+        F_full[:,1:,Nt//2+1:] = torch.conj(torch.flip(F_half[:,1:,1:],dims=[-2,-1]))
+
+    # Ensure real values at (0,0) and Nyquist frequency intersections
+    F_full[:,0, 0] = F_full[:,0, 0].real.clone()  # DC component
+    if Nx % 2 == 0 and Nt % 2 == 0:
+        F_full[:,Nx//2, Nt//2] = F_full[:,Nx//2, Nt//2].real.clone()
+
+    return F_full
+
+def check_ifft_real(f_full):
+    """
+    Check if the inverse Fourier transform of a Hermitian-symmetric matrix is real.
+    
+    Args:
+        F_full (torch.Tensor): Full Hermitian-symmetric matrix of shape (Nx, Nt).
+    
+    Returns:
+        is_real (bool): True if the inverse Fourier transform is real, False otherwise.
+    """
+    # Check if the real part is close to zero
+    is_real = torch.allclose(f_full.imag, torch.zeros_like(f_full.real), atol=1e-5)
+    
+    return is_real

@@ -59,11 +59,11 @@ class DeepOData(Dataset):
 
 class SpectralSpaceTime(Dataset):
     def __init__(self, x, y):
-        self.x = torch.tensor(x)
-        self.y = torch.tensor(y)
+        self.x = torch.tensor(x).float()
+        self.y = torch.tensor(y).float()
 
     def __len__(self):
-        return len(self.x.shape[0])  # Total size of the dataset
+        return len(self.x)  # Total size of the dataset
 
     def __getitem__(self, idx):
         return self.x[idx], self.y[idx]  # Return a single data-label pair
@@ -105,8 +105,6 @@ def get_harmonic_oscillator_data(args):
     x = (branch_data.astype(np.float32), trunk_data.astype(np.float32))
     y = y.astype(np.float32)
 
-    print(f'yshape is {y.shape}')
-
     if args.method == 'deeponet':
         data = DeepOData(x, y.T)
     else:
@@ -129,7 +127,7 @@ def get_1d_KdV_Soliton_data(args):
     a = np.random.uniform(args.IC['a'][0], args.IC['a'][1], size=(args.n_branch, 1))  # parameter 1
     c = np.random.uniform(args.IC['c'][0], args.IC['c'][1], size=(args.n_branch, 1))  # parameter 2
     trunk_t =  np.linspace(args.tmin, args.tmax, int((args.tmax-args.tmin)/args.t_res))
-    trunk_x = np.linspace(args.xmin, args.xmax, int((args.xmax-args.xmin)/args.col_N))
+    trunk_x = np.linspace(args.xmin, args.xmax, int((args.xmax-args.xmin)/args.Nx))
 
     X, T = np.meshgrid(trunk_x, trunk_t)
     trunk_data = np.column_stack((T.flatten(), X.flatten()))
@@ -158,7 +156,7 @@ def get_1d_KdV_Soliton_data_ifft(args):
     a = np.random.uniform(args.IC['a'][0], args.IC['a'][1], size=(args.n_branch, 1))  # parameter 1
     c = np.random.uniform(args.IC['c'][0], args.IC['c'][1], size=(args.n_branch, 1))  # parameter 2
     trunk_t =  np.linspace(args.tmin, args.tmax, max(1,int((args.tmax-args.tmin)/args.t_res)))
-    trunk_x = np.linspace(args.xmin, args.xmax, args.col_N)
+    trunk_x = np.linspace(args.xmin, args.xmax, args.Nx)
 
 
     # X, T = np.meshgrid(trunk_x, trunk_t)
@@ -172,16 +170,12 @@ def get_1d_KdV_Soliton_data_ifft(args):
                   for a_i, c_i, t in zip(branch_data[:,0], branch_data[:,1], trunk_t)])
     # y = y.reshape(-1, 1).T  # Reshape to match expected format
     y = y.astype(np.float32).T
-    print(y.shape)
 
     # trunk_data = trunk_t
     # trunk_data = np.tile(trunk_data, (1, args.n_branch)).T
 
     x = (branch_data.astype(np.float32), trunk_t.astype(np.float32))
 
-    print(branch_data.shape)
-    print(trunk_t.shape)
-    print(y.shape)
 
     if args.method == 'deeponet':
         data = DeepOData(x, y.T)
@@ -453,13 +447,11 @@ def wave_evolve_fft(args, x_vals, t_vals, c):
 
 def get_1d_wave_data(args):
     c = args.IC['c']
-    t_vals = np.linspace(args.tmin, args.tmax, max(1,int((args.tmax-args.tmin)/args.t_res)))
-    x_vals = np.linspace(args.xmin, args.xmax, args.col_N)
+    t_vals = np.linspace(args.tmin, args.tmax, args.Nt)
+    x_vals = np.linspace(args.xmin, args.xmax, args.Nx)
 
-    Nx = len(x_vals)
-    Nt = len(t_vals)
-
-    print(c)
+    Nx = args.Nx
+    Nt = args.Nt
 
     if args.method == 'deeponet' or args.method == 'orthonormal_pushforward':
         branch_data = None
@@ -470,7 +462,7 @@ def get_1d_wave_data(args):
             x, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(args, x_vals, t_vals, c)
             # print(f'energy values are {energy_values}')
 
-            k = torch.tensor(np.fft.fftfreq(args.col_N, d=((args.xmax-args.xmin)/args.col_N)) * 2* np.pi).float()  # to device?
+            k = torch.tensor(np.fft.fftfreq(args.Nx, d=((args.xmax-args.xmin)/args.Nx)) * 2* np.pi).float()  # to device?
 
             branch_block = np.stack([u0,ut0], axis=0)
             branch_block = np.stack([branch_block] * t_vals.shape[0], axis=0)
@@ -479,19 +471,19 @@ def get_1d_wave_data(args):
             gt_ut = torch.tensor(ut0[None,:])
             gt_u_hat = torch.fft.fft(gt_u, dim=1)  # dim=1 since shape is (time, space)
             gt_ut_hat = torch.fft.fft(gt_ut, dim=1)
-            init_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) * L / (args.col_N ** 2)
+            init_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) * L / (args.Nx ** 2)
 
 
             y_block = np.stack([u_data,ut_data], axis=0)
             y_block = np.stack([u_data, ut_data], axis=0).transpose(1, 0, 2)
-            y_block = y_block.reshape(-1, 2, args.col_N)  # reshape to (time, 2, space)
+            y_block = y_block.reshape(-1, 2, args.Nx)  # reshape to (time, 2, space)
 
             gt_u = torch.tensor(u_data)
             gt_ut = torch.tensor(ut_data)
 
             gt_u_hat = torch.fft.fft(gt_u, dim=1)  # dim=1 since shape is (time, space)
             gt_ut_hat = torch.fft.fft(gt_ut, dim=1)
-            target_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) * L / (args.col_N ** 2)
+            target_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) * L / (args.Nx ** 2)
 
             #check init energy approximately equal to average target energy
             assert init_energy[0] - torch.mean(target_energy) < 1e-1, f'Initial energy not equal to average target energy. {init_energy[0]} != {torch.mean(target_energy)}'
@@ -512,17 +504,17 @@ def get_1d_wave_data(args):
         gt_u = torch.tensor(x[0][:,0,:])
         gt_ut = torch.tensor(x[0][:,1,:])
 
-        gt_u_hat = torch.fft.fft(gt_u, n=args.col_N, dim=1)  # dim=1 since shape is (time, space)
-        gt_ut_hat = torch.fft.fft(gt_ut, n=args.col_N, dim=1)
-        true_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+        gt_u_hat = torch.fft.fft(gt_u, n=args.Nx, dim=1)  # dim=1 since shape is (time, space)
+        gt_ut_hat = torch.fft.fft(gt_ut, n=args.Nx, dim=1)
+        true_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.Nx
 
         #target energy
         gt_u = torch.tensor(y[:,0,:])
         gt_ut = torch.tensor(y[:,1,:])
 
-        gt_u_hat = torch.fft.fft(gt_u, n=args.col_N, dim=1)  # dim=1 since shape is (time, space)
-        gt_ut_hat = torch.fft.fft(gt_ut, n=args.col_N, dim=1)
-        target_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.col_N
+        gt_u_hat = torch.fft.fft(gt_u, n=args.Nx, dim=1)  # dim=1 since shape is (time, space)
+        gt_ut_hat = torch.fft.fft(gt_ut, n=args.Nx, dim=1)
+        target_energy = torch.sum(torch.abs(gt_ut_hat)**2 + args.IC['c']**2 * torch.abs(k * gt_u_hat)**2, dim=1) / args.Nx
 
         assert (true_energy - target_energy).max() < 1, f'Energy is not conserved in training data – max difference was: {(true_energy - target_energy).max()}'
 
@@ -534,7 +526,6 @@ def get_1d_wave_data(args):
             x_vals, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(args, x_vals, t_vals, c)
             x_block = np.concatenate((u0.reshape(-1, 1), ut0.reshape(-1, 1)), axis=1).reshape(1,2,-1) #n_branch x 2 x num_x
             y_block = np.concatenate((u_data.reshape(1,Nt,Nx),ut_data.reshape(1,Nt,Nx)), axis=0).reshape(1,2,Nt,Nx) #n_branch x 2 x num_x 
-            print(y_block.shape)
             # y_block = y_block.reshape(-1, 1).reshape(1,2,-1) 
             if x is None:
                 x = x_block
@@ -543,7 +534,8 @@ def get_1d_wave_data(args):
                 x = np.concatenate((x, x_block), axis=0)
                 y = np.concatenate((y, y_block), axis=0)
         
-        print(y.shape)
+        #transpose last two dimensions
+        y = y.transpose(0, 1, 3, 2)
 
         data = SpectralSpaceTime(x, y)
     else:
