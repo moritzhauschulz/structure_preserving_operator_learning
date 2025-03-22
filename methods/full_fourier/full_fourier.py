@@ -159,8 +159,8 @@ def main_loop(args, data):
 
         epoch_losses = {}
         for batch_idx, (x, y) in enumerate(train_loader):
-            x[0] = x[0].to(args.device)
-            x[1] = x[1].to(args.device)
+            x = x.to(args.device)
+            y = y.to(args.device)
 
             loss, losses = compute_loss(args,i, model, x, y)
 
@@ -180,8 +180,8 @@ def main_loop(args, data):
             val_loss = 0
 
             for batch_idx, (x, y) in enumerate(val_loader):
-                x[0] = x[0].to(args.device)
-                x[1] = x[1].to(args.device)
+                x = x.to(args.device)
+                y = y.to(args.device)
                 
 
                 loss, losses = compute_loss(args,i, model, x, y)

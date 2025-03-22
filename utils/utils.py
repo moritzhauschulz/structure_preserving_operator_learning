@@ -425,7 +425,6 @@ class FourierQRStrategy(CustomStrategy):
         return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, fourier_energy)
 
 def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
-    if self.method == 'deeponet':
     if self.problem == '1d_KdV_Soliton':
         N = 500
         dx = self.L / N
@@ -524,6 +523,193 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
         
     return true_energy, current_energy, learned_energy, energy_components
 
+def compute_energies_full_fourier(self, prelim_out, four_coef, og_x, og_y):
+    if self.problem == '1d_wave':
+        #compute 1d target energy:
+        print(og_x[0,0,:].shape)
+        print(og_y[0,0,:,0].shape)
+
+
+        # plt.plot(og_x[0,0,:].detach().numpy())
+        # plt.plot(og_y[0,0,:,0].detach().numpy())
+        # plt.show()
+
+
+
+
+        y = og_y[:,0,:,:]
+        yt = og_y[:,1,:,:]
+
+        print(self.Nx)
+
+        wave_k = torch.fft.fftfreq(self.Nx, d=(self.Lx/self.Nx)) * 2 * np.pi  # Wave numbers
+
+        print(wave_k.shape)
+
+        print(y.shape)
+
+        u_hat = torch.fft.fft(y, dim=1)
+        ut_hat = torch.fft.fft(yt, dim=1)
+
+        print(u_hat.shape)
+
+        og_target_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.Lx / (self.Nx ** 2)
+        og_target_energy_u_component = torch.sum(self.IC['c']**2 * (wave_k.unsqueeze(0).unsqueeze(-1).expand(u_hat.shape) ** 2) * torch.abs(u_hat)**2, dim=1) * self.Lx / (self.Nx ** 2)
+        og_target_energy = og_target_energy_ut_component + og_target_energy_u_component
+
+        # kx = torch.tensor(np.fft.fftfreq(self.Nx, d=(self.Lx/self.Nx)) * 2* np.pi).float() 
+        # kt = torch.tensor(np.fft.fftfreq(self.Nt, d=(self.Lt/self.Nt)) * 2* np.pi).float()
+        
+        target_four_coef = torch.fft.fftn(y, dim=(1,2))
+        print(target_four_coef.shape)
+
+        # --- User-provided inputs ---
+        # four_coef: tensor of shape (N, Nx, Nt) containing the Fourier coefficients
+        # L_x, L_t: the spatial and temporal domain lengths (floats)
+        # For example, they might be defined as:
+        # L_x, L_t = 2 * torch.pi, 1.0
+
+        N, Nx, Nt = target_four_coef.shape
+
+        # Create the time grid. For a periodic domain we use Nt equispaced points in [0, L_t).
+        # Note: torch.linspace includes the endpoint, so we use arange to avoid it.
+        t = torch.arange(Nt, device=target_four_coef.device) * (self.Lt / Nt)  # shape: (Nt,)
+
+        # Create an index tensor for the time Fourier modes.
+        m = torch.arange(Nt, device=target_four_coef.device)  # shape: (Nt,)
+
+        # Construct the exponential matrix for the inverse transform in time.
+        # Its (n, m)-th entry is exp(2π i * m * t_n / L_t).
+        # This matrix has shape (Nt, Nt).
+        exp_matrix = torch.exp(2 * torch.pi * 1j * t.unsqueeze(1) * m.unsqueeze(0) / self.Lt)
+
+        # --- Inverse transform in time (for each batch and spatial mode) ---
+        # For each batch sample and spatial mode, we compute:
+        #   f_k(t_n) = (1/Nt) * sum_{m=0}^{Nt-1} four_coef[n, k, m] * exp(2π i * m * t_n / L_t)
+        # We can perform this for all batches at once by using torch.matmul.
+        # The multiplication is along the time dimension.
+        inv_time = (1.0 / Nt) * torch.matmul(target_four_coef, exp_matrix.T)  # shape: (N, Nx, Nt)
+
+        # --- Compute the Fourier coefficients for the time derivative u_t ---
+        # In Fourier space, differentiation in time multiplies each mode by 2π i m / L_t.
+        # Create the multiplier for time modes.
+        multiplier_t = 2 * torch.pi * 1j * (m / self.Lt)  # shape: (Nt,)
+        # Multiply the Fourier coefficients along the time (last) dimension.
+        four_coef_t_mult = target_four_coef * multiplier_t[None, None, :]  # shape: (N, Nx, Nt)
+        # Now compute the inverse transform in time with the differentiated coefficients.
+        u_t_fourier_coeff = (1.0 / Nt) * torch.matmul(four_coef_t_mult, exp_matrix.T)  # shape: (N, Nx, Nt)
+
+        # --- Compute the Fourier coefficients for the spatial derivative u_x ---
+        # The inverse time transform (without differentiation) has been computed in inv_time.
+        # Differentiation in space multiplies the k-th mode by 2π i k / L_x.
+        # Create the multiplier for spatial modes.
+        k = torch.arange(Nx, device=four_coef.device)  # shape: (Nx,)
+        multiplier_x = 2 * torch.pi * 1j * (k / self.Lx)  # shape: (Nx,)
+        # Multiply each spatial mode of inv_time by its corresponding multiplier.
+        u_x_fourier_coeff = inv_time * multiplier_x[None, :, None]  # shape: (N, Nx, Nt)
+
+        target_energy_ut_component = torch.sum(torch.abs(u_t_fourier_coeff)**2, dim=1) * self.Lx / (self.Nx ** 2)
+        target_energy_ux_component = torch.sum(self.IC['c']**2 * torch.abs(u_x_fourier_coeff)**2, dim=1) * self.Lx / (self.Nx ** 2)
+
+        target_energy = target_energy_ut_component + target_energy_ux_component
+
+        
+        if self.num_output_fn == 1:
+            
+            # --- User-provided inputs ---
+            # four_coef: tensor of shape (N, Nx, Nt) containing the Fourier coefficients
+            # L_x, L_t: the spatial and temporal domain lengths (floats)
+            # For example, they might be defined as:
+            # L_x, L_t = 2 * torch.pi, 1.0
+
+            N, Nx, Nt = four_coef.shape
+
+            # Create the time grid. For a periodic domain we use Nt equispaced points in [0, L_t).
+            # Note: torch.linspace includes the endpoint, so we use arange to avoid it.
+            t = torch.arange(Nt, device=four_coef.device) * (self.Lt / Nt)  # shape: (Nt,)
+
+            # Create an index tensor for the time Fourier modes.
+            m = torch.arange(Nt, device=four_coef.device)  # shape: (Nt,)
+
+            # Construct the exponential matrix for the inverse transform in time.
+            # Its (n, m)-th entry is exp(2π i * m * t_n / L_t).
+            # This matrix has shape (Nt, Nt).
+            exp_matrix = torch.exp(2 * torch.pi * 1j * t.unsqueeze(1) * m.unsqueeze(0) / self.Lt)
+
+            # --- Inverse transform in time (for each batch and spatial mode) ---
+            # For each batch sample and spatial mode, we compute:
+            #   f_k(t_n) = (1/Nt) * sum_{m=0}^{Nt-1} four_coef[n, k, m] * exp(2π i * m * t_n / L_t)
+            # We can perform this for all batches at once by using torch.matmul.
+            # The multiplication is along the time dimension.
+            inv_time = (1.0 / Nt) * torch.matmul(four_coef, exp_matrix.T)  # shape: (N, Nx, Nt)
+
+            # --- Compute the Fourier coefficients for the time derivative u_t ---
+            # In Fourier space, differentiation in time multiplies each mode by 2π i m / L_t.
+            # Create the multiplier for time modes.
+            multiplier_t = 2 * torch.pi * 1j * (m / self.Lt)  # shape: (Nt,)
+            # Multiply the Fourier coefficients along the time (last) dimension.
+            four_coef_t_mult = four_coef * multiplier_t[None, None, :]  # shape: (N, Nx, Nt)
+            # Now compute the inverse transform in time with the differentiated coefficients.
+            u_t_fourier_coeff = (1.0 / Nt) * torch.matmul(four_coef_t_mult, exp_matrix.T)  # shape: (N, Nx, Nt)
+
+            # --- Compute the Fourier coefficients for the spatial derivative u_x ---
+            # The inverse time transform (without differentiation) has been computed in inv_time.
+            # Differentiation in space multiplies the k-th mode by 2π i k / L_x.
+            # Create the multiplier for spatial modes.
+            k = torch.arange(Nx, device=four_coef.device)  # shape: (Nx,)
+            multiplier_x = 2 * torch.pi * 1j * (k / self.Lx)  # shape: (Nx,)
+            # Multiply each spatial mode of inv_time by its corresponding multiplier.
+            u_x_fourier_coeff = inv_time * multiplier_x[None, :, None]  # shape: (N, Nx, Nt)
+
+            print(u_x_fourier_coeff.shape)
+
+            current_energy_ut_component = torch.sum(torch.abs(u_t_fourier_coeff)**2, dim=1) * self.Lx / (self.Nx ** 2)
+            current_energy_ux_component = torch.sum(self.IC['c']**2 * torch.abs(u_x_fourier_coeff)**2, dim=1) * self.Lx / (self.Nx ** 2)
+
+            current_energy = current_energy_ut_component + current_energy_ux_component
+
+            learned_energy_ut_component = None
+            learned_energy_ux_component = None
+            learned_energy = None
+
+            # k = torch.tensor(np.fft.fftfreq(Nx, d=(self.Lx/self.Nx)) * 2* np.pi).float()  # to device?
+
+            gt_u = og_x[:,0,:]
+            gt_ut = og_x[:,1,:]
+
+            gt_u_hat = torch.fft.fft(gt_u, n=self.Nx, dim=1)  # dim=1 since shape is (time, space)
+            gt_ut_hat = torch.fft.fft(gt_ut, n=self.Nx, dim=1)
+
+            true_energy_ut_component = torch.sum(torch.abs(gt_ut_hat)**2, dim=1) * self.Lx / (self.Nx ** 2)
+            true_energy_ux_component = torch.sum(self.IC['c']**2 * (wave_k ** 2) * torch.abs(gt_u_hat)**2, dim=1) * self.Lx / (self.Nx ** 2)
+            true_energy = true_energy_ut_component + true_energy_ux_component
+
+        if self.num_output_fn == 2:
+            raise NotImplementedError('Energy calculation for two output functions not implemented')
+        
+        energy_components = {'true_energy_u_component': true_energy_ux_component, 'true_energy_ut_component': true_energy_ut_component, 
+                         'current_energy_u_component': current_energy_ux_component, 'current_energy_ut_component': current_energy_ut_component,
+                         'learned_energy_u_component': learned_energy_ux_component, 'learned_energy_ut_component': learned_energy_ut_component,
+                         'target_energy': target_energy, 'target_energy_ux_component': target_energy_ux_component, 'target_energy_ut_component': target_energy_ut_component,
+                            'og_target_energy': og_target_energy, 'og_target_energy_ux_component': og_target_energy_u_component, 'og_target_energy_ut_component': og_target_energy_ut_component}
+
+        print(f'true energy {true_energy.mean()}')
+        print(f'current energy {current_energy.mean()}')
+        print(f'true energy ut component {true_energy_ut_component.mean()}')
+        print(f'current energy ut component {current_energy_ut_component.mean()}')
+        print(f'true energy ux component {true_energy_ux_component.mean()}')
+        print(f'current energy ux component {current_energy_ux_component.mean()}')
+        print(f'og target energy {og_target_energy.mean()}')
+
+    return true_energy, current_energy, learned_energy, energy_components
+
+
+
+
+
+        
+
+
 
 def project_fourier_coefficients(self, prelim_out, four_coef, x_func, x_loc, x, y) -> torch.Tensor:
     """
@@ -566,6 +752,36 @@ def project_fourier_coefficients(self, prelim_out, four_coef, x_func, x_loc, x, 
     #     assert (learned_energy - true_energy).abs().max() < 1, f'Energy is not conserved after projection – max difference was: {(learned_energy - true_energy).abs().max().item()}'
 
     return four_coef_proj, (true_energy, current_energy, learned_energy, energy_components)
+
+def scaling_factor_full_fourier(self, prelim_out, four_coef, energies) -> torch.Tensor:
+    """
+    Projects a batch of Fourier coefficients onto the manifold ∑|c_i|² = C.
+
+    Args:
+        four_coef (torch.Tensor): Tensor of shape [batch_size, num_fourier_modes]
+                                  representing Fourier coefficients.
+        C (float): Desired L2 norm squared (energy level).
+
+    Returns:
+        torch.Tensor: Projected Fourier coefficients of the same shape.
+    """
+    true_energy, current_energy, learned_energy, energy_components = energies
+
+    if self.num_output_fn == 1:
+        norming_energy = current_energy
+    elif self.num_output_fn == 2:
+        norming_energy = learned_energy
+
+    #broadcast true_energy to match shape of norming_energy
+    true_energy = true_energy.unsqueeze(-1).expand(-1, norming_energy.shape[1])
+    mask = (norming_energy == 0)
+    scaling_factor = torch.zeros_like(true_energy)
+    scaling_factor[~mask] = torch.sqrt(true_energy[~mask] / norming_energy[~mask])
+    scaling_factor = scaling_factor[:,None].expand(four_coef.shape)
+   
+    assert not torch.is_complex(scaling_factor), "Scaling factor is complex"
+
+    return scaling_factor
     
 
 def padded_ifft(four_coef_hat, K):
@@ -624,8 +840,8 @@ class FullFourierStrategy():
     def __init__(self, args, net):
         self.net = net
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
-        self.L = args.xmax - args.xmin
-        self.T = args.tmax - args.tmin
+        self.Lx = args.xmax - args.xmin
+        self.Lt = args.tmax - args.tmin
         self.Nx = args.Nx
         self.Nt = args.Nt
         self.problem = args.problem
@@ -655,11 +871,62 @@ class FullFourierStrategy():
             new_four_coef_list.append(F_full)
         out = torch.cat(out_list, dim=1)
         four_coef = torch.cat(new_four_coef_list, dim=1)
-        energies = compute_energies(self, out, four_coef, x_func, x_loc, x, y)
+        energies = compute_energies_full_fourier(self, out, four_coef, x, y)
 
         self.i += 1
 
-        return out.real #, (energies)
+        return out.real, (energies)
+
+
+class FullFourierNormStrategy():
+    def __init__(self, args, net):
+        self.net = net
+        assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
+        self.Lx = args.xmax - args.xmin
+        self.Lt = args.tmax - args.tmin
+        self.Nx = args.Nx
+        self.Nt = args.Nt
+        self.problem = args.problem
+        self.num_output_fn = args.num_output_fn
+        self.IC = args.IC
+        self.i = 0
+
+    def call(self, out, x=None, y=None):
+        four_coef = out
+        # Combine real and imaginary parts into complex tensor
+        four_coef = to_complex_tensor(four_coef)
+        four_coef = four_coef.view(-1, self.Nx * self.num_output_fn, (self.Nt // 2) + 1)
+
+        four_coef.view(-1, self.Nx * self.num_output_fn, self.Nt // 2 + 1)
+
+        four_coef_list = [four_coef[:,i*int(self.Nx):(i+1)*int(self.Nx),:] for i in range(self.num_output_fn)]
+        out_list = []
+        new_four_coef_list = []
+        for four_coef in four_coef_list:
+
+            # use constructor to complete matrix
+            F_full = construct_full_fourier_matrix(self.Nx, self.Nt, four_coef)
+
+            f_full = torch.fft.ifftn(F_full, dim=(-2, -1))
+            check_ifft_real(f_full)
+            out_list.append(f_full)
+            new_four_coef_list.append(F_full)
+        out = torch.cat(out_list, dim=1)
+        four_coef = torch.cat(new_four_coef_list, dim=1)
+        energies = compute_energies_full_fourier(self, out, four_coef, x, y)
+
+        scaling_factor  = scaling_factor_full_fourier(self, out, four_coef, energies) #is it okay to just apply this to the transformed output?
+
+        # four_coef_list = [updated_four_coef[:,i*int(self.Nx):(i+1)*int(self.Nx),:] for i in range(self.num_output_fn)]
+        # out_list = []
+        # for four_coef in four_coef_list:
+        #     f_full = torch.fft.ifftn(four_coef, dim=(-2, -1))
+        #     check_ifft_real(f_full)
+        #     out_list.append(f_full)
+        out = torch.cat(out_list, dim=1) * scaling_factor #is this valid
+        # energies = compute_energies_full_fourier(self, out, four_coef, x, y)
+        self.i += 1
+        return out.real, energies
 
 def construct_full_fourier_matrix(Nx, Nt, F_half):
     """

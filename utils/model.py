@@ -1,7 +1,7 @@
 import torch 
 import torch.nn as nn
 from .deeponet import DeepONet
-from utils.utils import FullFourierStrategy #, FullFourierNormStrategy
+from utils.utils import FullFourierStrategy, FullFourierNormStrategy
 
 
 class Swish(nn.Module):

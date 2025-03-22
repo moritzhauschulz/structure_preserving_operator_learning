@@ -378,12 +378,20 @@ def wave_evolve_fft(args, x_vals, t_vals, c):
     avg_energy = np.mean(energy_vals)
     max_energy_dev = np.max(np.abs(np.array(energy_vals) - initial_energy))
     assert max_energy_dev < 1, f"Energy not conserved! Max deviation: {max_energy_dev}" #tighten this
-    
+
     # Extract values at original timepoints
     t_indices = np.searchsorted(t_fine, t_vals)
     u_data = u_fine[t_indices]
     ut_data = ut_fine[t_indices]
     energy_vals = np.array(energy_vals)[t_indices]
+
+
+    # plt.plot(u0, label='Initial condition')
+    # plt.plot(u_data[1], label='t=1')
+    # plt.plot(u_data[25], label='t=25')
+    # plt.legend()
+    # plt.show()
+    
     
     return x, t_vals, u_data.real, ut_data.real, energy_vals, u0, ut0
 
@@ -525,17 +533,25 @@ def get_1d_wave_data(args):
         for i in range(args.n_branch):
             x_vals, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(args, x_vals, t_vals, c)
             x_block = np.concatenate((u0.reshape(-1, 1), ut0.reshape(-1, 1)), axis=1).reshape(1,2,-1) #n_branch x 2 x num_x
-            y_block = np.concatenate((u_data.reshape(1,Nt,Nx),ut_data.reshape(1,Nt,Nx)), axis=0).reshape(1,2,Nt,Nx) #n_branch x 2 x num_x 
+            y_block = np.concatenate((u_data.unsqueeze(0),ut_data.unsqueeze(0)), axis=0).unsqueeze(0) #n_branch x 2 x num_x 
             # y_block = y_block.reshape(-1, 1).reshape(1,2,-1) 
             if x is None:
                 x = x_block
                 y = y_block
+                print(u0.shape)
+                print(u_data.shape)
+                plt.plot(x_block[0,0,:],  label='Initial condition')
+                plt.plot(u_data[0,0,0,:], label='t=1')
+                plt.legend()
+                plt.show()
             else:
                 x = np.concatenate((x, x_block), axis=0)
                 y = np.concatenate((y, y_block), axis=0)
         
         #transpose last two dimensions
         y = y.transpose(0, 1, 3, 2)
+
+
 
         data = SpectralSpaceTime(x, y)
     else:
