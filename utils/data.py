@@ -126,8 +126,8 @@ def exact_soliton(x, t, c, a):
 def get_1d_KdV_Soliton_data(args):
     a = np.random.uniform(args.IC['a'][0], args.IC['a'][1], size=(args.n_branch, 1))  # parameter 1
     c = np.random.uniform(args.IC['c'][0], args.IC['c'][1], size=(args.n_branch, 1))  # parameter 2
-    trunk_t =  np.linspace(args.tmin, args.tmax, int((args.tmax-args.tmin)/args.t_res))
-    trunk_x = np.linspace(args.xmin, args.xmax, int((args.xmax-args.xmin)/args.Nx))
+    trunk_t =  np.linspace(args.tmin, args.tmax, int((args.tmax-args.tmin)/args.t_res), endpoint=False)
+    trunk_x = np.linspace(args.xmin, args.xmax, int((args.xmax-args.xmin)/args.Nx), endpoint=False)
 
     X, T = np.meshgrid(trunk_x, trunk_t)
     trunk_data = np.column_stack((T.flatten(), X.flatten()))
@@ -155,8 +155,8 @@ def get_1d_KdV_Soliton_data(args):
 def get_1d_KdV_Soliton_data_ifft(args):
     a = np.random.uniform(args.IC['a'][0], args.IC['a'][1], size=(args.n_branch, 1))  # parameter 1
     c = np.random.uniform(args.IC['c'][0], args.IC['c'][1], size=(args.n_branch, 1))  # parameter 2
-    trunk_t =  np.linspace(args.tmin, args.tmax, max(1,int((args.tmax-args.tmin)/args.t_res)))
-    trunk_x = np.linspace(args.xmin, args.xmax, args.Nx)
+    trunk_t =  np.linspace(args.tmin, args.tmax, max(1,int((args.tmax-args.tmin)/args.t_res)), endpoint=False)
+    trunk_x = np.linspace(args.xmin, args.xmax, args.Nx, endpoint=False)
 
 
     # X, T = np.meshgrid(trunk_x, trunk_t)
@@ -186,6 +186,7 @@ def get_1d_KdV_Soliton_data_ifft(args):
 
 def enforce_hermitian_symmetry(u_hat):
     N = len(u_hat)
+
     # Ensure the DC component is real
     u_hat[0] = np.real(u_hat[0])
     
@@ -278,6 +279,9 @@ def wave_sample_initial_conditions_periodic_gp(x_vals, L, num_modes, zero_zero_m
     u0_hat = np.fft.fft(u0) 
     ut0_hat = np.fft.fft(ut0)
 
+    # #check periodicity
+    # assert np.allclose(u0[0], u0[-1]), f'Initial condition not periodic. u0[0] = {u0[0]} != {u0[-1]} = u0[-1]'
+
     return u0, ut0, u0_hat, ut0_hat, x_vals
 
 
@@ -287,7 +291,7 @@ def wave_sample_initial_conditions_sinusoidal(x_vals, L):
 
     # Create initial condition as sum of sinusoids
     k_max = 10  
-    amplitudes = np.random.randn(k_max) * np.exp(-np.linspace(0, k_max, k_max)**2 / 10)
+    amplitudes = np.random.randn(k_max) * np.exp(-np.linspace(0, k_max, k_max, endpoint=False)**2 / 10)
     phases = np.random.uniform(0, 2 * np.pi, k_max)
     
     u0 = np.sum([a * np.sin(k * np.pi * x_vals / (L/2) + p) for k, a, p in zip(range(1, k_max + 1), amplitudes, phases)], axis=0)
@@ -315,15 +319,15 @@ def wave_evolve_fft(args, x_vals, t_vals, c):
     """Evolve the wave equation using a high-accuracy numerical spectral method."""
     Nx = len(x_vals)
     Nt = len(t_vals)    
-    L = x_vals[-1] - x_vals[0]  # Domain length
+    L = args.xmax - args.xmin  # Domain length
     
     # Use smaller timestep for integration
     dt = args.data_dt
     n_substeps = max(1, int((t_vals[1] - t_vals[0])/dt))
     dt = (t_vals[1] - t_vals[0])/n_substeps
-    t_fine = np.arange(t_vals[0], t_vals[-1] + dt/2, dt)
+    t_fine = torch.arange(t_vals[0], t_vals[-1] + dt/2 + dt, dt)
 
-    k = np.fft.fftfreq(Nx, d=(L/Nx)) * 2 * np.pi  # Wave numbers
+    k = torch.fft.fftfreq(Nx, d=(L/Nx)) * 2 * torch.pi  # Wave numbers
 
     # Sample initial conditions
     if args.IC['type'] == 'periodic_gp':
@@ -331,27 +335,31 @@ def wave_evolve_fft(args, x_vals, t_vals, c):
     elif args.IC['type'] == 'sinusoidal':
         u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_sinusoidal(x_vals, L)
     
+    # Convert numpy arrays to torch tensors
+    u0_hat = torch.from_numpy(u0_hat)
+    ut0_hat = torch.from_numpy(ut0_hat)
+    
     # Define spectral RHS function
     def spectral_rhs(u_hat, ut_hat, k_vals, c):
         return - (c**2) * (k_vals**2) * u_hat  # Second derivative in Fourier space
 
     # Initialize storage
-    u_fine = np.zeros((len(t_fine), Nx), dtype=complex)
-    ut_fine = np.zeros((len(t_fine), Nx), dtype=complex)
+    u_fine = torch.zeros((len(t_fine), Nx), dtype=torch.cfloat)
+    ut_fine = torch.zeros((len(t_fine), Nx), dtype=torch.cfloat)
     energy_vals = []
     
     # Initialize Fourier coefficients
-    u_hat = np.copy(u0_hat)
-    ut_hat = np.copy(ut0_hat)
+    u_hat = u0_hat.clone()
+    ut_hat = ut0_hat.clone()
     
     # Compute initial energy
-    initial_energy = np.sum(np.abs(ut_hat)**2 + c**2 * np.abs(k * u_hat)**2) * (L / Nx)
+    initial_energy = torch.sum(torch.abs(ut_hat)**2 + c**2 * torch.abs(k * u_hat)**2) * (L / Nx)
     energy_vals.append(initial_energy)
 
     # Time-stepping using RK4
     for i in range(len(t_fine)):
-        u_fine[i, :] = np.fft.ifft(u_hat).real
-        ut_fine[i, :] = np.fft.ifft(ut_hat).real
+        u_fine[i, :] = torch.fft.ifft(u_hat).real
+        ut_fine[i, :] = torch.fft.ifft(ut_hat).real
 
         # Compute Runge-Kutta 4 (RK4) stages
         k1 = dt * ut_hat
@@ -371,30 +379,22 @@ def wave_evolve_fft(args, x_vals, t_vals, c):
         ut_hat += (l1 + 2*l2 + 2*l3 + l4) / 6
 
         # Compute energy at this time step
-        energy_t = np.sum(np.abs(ut_hat)**2 + c**2 * np.abs(k * u_hat)**2) * (L / Nx)
+        energy_t = torch.sum(torch.abs(ut_hat)**2 + c**2 * torch.abs(k * u_hat)**2) * (L / Nx)
         energy_vals.append(energy_t)
     
     # Check energy conservation
-    avg_energy = np.mean(energy_vals)
-    max_energy_dev = np.max(np.abs(np.array(energy_vals) - initial_energy))
-    assert max_energy_dev < 1, f"Energy not conserved! Max deviation: {max_energy_dev}" #tighten this
+    energy_vals = torch.tensor(energy_vals)
+    avg_energy = torch.mean(energy_vals)
+    max_energy_dev = torch.max(torch.abs(energy_vals - initial_energy))
+    assert max_energy_dev < 1, f"Energy not conserved! Max deviation: {max_energy_dev}"
 
     # Extract values at original timepoints
-    t_indices = np.searchsorted(t_fine, t_vals)
+    t_indices = torch.searchsorted(t_fine, torch.tensor(t_vals))
     u_data = u_fine[t_indices]
     ut_data = ut_fine[t_indices]
-    energy_vals = np.array(energy_vals)[t_indices]
-
-
-    # plt.plot(u0, label='Initial condition')
-    # plt.plot(u_data[1], label='t=1')
-    # plt.plot(u_data[25], label='t=25')
-    # plt.legend()
-    # plt.show()
+    energy_vals = energy_vals[t_indices]
     
-    
-    return x, t_vals, u_data.real, ut_data.real, energy_vals, u0, ut0
-
+    return x, t_vals, torch.tensor(u_data.real), torch.tensor(ut_data.real), energy_vals.numpy(), torch.tensor(u0), torch.tensor(ut0)
 
 # def wave_evolve_fft(args, x_vals, t_vals, c):
 #     """Evolve the wave equation using FFT-based spectral solution."""
@@ -455,8 +455,8 @@ def wave_evolve_fft(args, x_vals, t_vals, c):
 
 def get_1d_wave_data(args):
     c = args.IC['c']
-    t_vals = np.linspace(args.tmin, args.tmax, args.Nt)
-    x_vals = np.linspace(args.xmin, args.xmax, args.Nx)
+    t_vals = np.linspace(args.tmin, args.tmax, args.Nt, endpoint=False)
+    x_vals = np.linspace(args.xmin, args.xmax, args.Nx, endpoint=False)
 
     Nx = args.Nx
     Nt = args.Nt
@@ -532,24 +532,20 @@ def get_1d_wave_data(args):
         y = None
         for i in range(args.n_branch):
             x_vals, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(args, x_vals, t_vals, c)
-            x_block = np.concatenate((u0.reshape(-1, 1), ut0.reshape(-1, 1)), axis=1).reshape(1,2,-1) #n_branch x 2 x num_x
-            y_block = np.concatenate((u_data.unsqueeze(0),ut_data.unsqueeze(0)), axis=0).unsqueeze(0) #n_branch x 2 x num_x 
+            x_block = torch.concatenate((u0.unsqueeze(0), ut0.unsqueeze(0)), axis=0).unsqueeze(0) #n_branch x 2 x num_x
+            y_block = torch.concatenate((u_data.unsqueeze(0),ut_data.unsqueeze(0)), axis=0).unsqueeze(0) #n_branch x 2 x num_x 
             # y_block = y_block.reshape(-1, 1).reshape(1,2,-1) 
             if x is None:
                 x = x_block
                 y = y_block
-                print(u0.shape)
-                print(u_data.shape)
-                plt.plot(x_block[0,0,:],  label='Initial condition')
-                plt.plot(u_data[0,0,0,:], label='t=1')
-                plt.legend()
-                plt.show()
             else:
-                x = np.concatenate((x, x_block), axis=0)
-                y = np.concatenate((y, y_block), axis=0)
+                x = torch.concatenate((x, x_block), axis=0)
+                y = torch.concatenate((y, y_block), axis=0)
         
         #transpose last two dimensions
-        y = y.transpose(0, 1, 3, 2)
+        y = y.transpose(2,3)
+
+        print(y.shape)
 
 
 

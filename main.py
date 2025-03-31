@@ -30,7 +30,7 @@ def get_args():
     parser.add_argument('--x_res', type=float, default=0.1, help='x resolution')
     parser.add_argument('--Nx', type=int, default=49, help='Number of Collocation Points in Space')
     parser.add_argument('--Nt', type=int, default=49, help='Number of Collocation Points in Time')
-    parser.add_argument('--load_data', type=bool, default=False, help='Load data')
+    parser.add_argument('--load_data', type=bool, default=True, help='Load data')
     parser.add_argument('--load_checkpoint', type=str, default=None, help='Load model')
     parser.add_argument('--save_data', type=bool, default=True, help='Save data')
     parser.add_argument('--save_model', type=bool, default=True, help='Save model')
@@ -41,7 +41,7 @@ def get_args():
     parser.add_argument('--batch_size', type=int, default=1028, help='Batch size')
     parser.add_argument('--eval_every', type=int, default=5, help='Evaluate every')
     parser.add_argument('--num_outputs', type=int, default=1, help='Number of outputs')
-    parser.add_argument('--num_examples', type=int, default=5, help='Number of examples')
+    parser.add_argument('--num_examples', type=int, default=3, help='Number of examples')
     parser.add_argument('--branch_weight', type=float, default=1, help='weight on orthonormality loss')
     parser.add_argument('--trunk_weight', type=float, default=1, help='weight on normality loss')
     parser.add_argument('--nrg_weight', type=float, default=None, help='weight on nrg loss')
@@ -75,8 +75,14 @@ def get_args():
     parser.add_argument('--branch_layers', type=int, nargs='+', default=[3, 128, 128, 128, 4], help='Branch layers')
     parser.add_argument('--trunk_layers', type=int, nargs='+', default=[1, 128, 128, 2], help='Trunk layers')
     parser.add_argument('--deepo_activation', type=str, default='tanh', help='Trunk layers')
-    parser.add_argument('--strategy', type=str, default=None, choices={'independent','split_both','split_branch','split_trunk','orthonormal_branch_normal_trunk', 'normal_trunk', 'orthonormal_trunk', 'orthonormal_branch_normal_trunk_reg', 'QR', 'Fourier', 'FourierQR', 'FourierNorm', 'FullFourier', 'FullFourierNorm'}, help='DeepONet strategy')
+    parser.add_argument('--strategy', type=str, default=None, choices={'independent','split_both','split_branch','split_trunk','orthonormal_branch_normal_trunk', 'normal_trunk', 'orthonormal_trunk', 'orthonormal_branch_normal_trunk_reg', 'QR', 'Fourier', 'FourierQR', 'FourierNorm', 'FullFourier', 'FullFourierNorm', 'FullFourierAvgNorm', 'normal'}, help='DeepONet strategy')
     parser.add_argument('--loss', type=str, default='mse', choices=['mse', 'reg', 'nrg'], help='Loss function')
+
+    #nrg
+    parser.add_argument('--use_implicit_nrg', type=bool, default=False, help='Use implicit nrg')
+    parser.add_argument('--num_norm_refinements', type=int, default=0, help='Number of refinements')
+    parser.add_argument('--detach', type=bool, default=False, help='Detach?')
+
 
     #wanbd
     parser.add_argument('--wandb_user', type=str, default='moritz-hasuschulz', help='Wandb user')
@@ -104,14 +110,10 @@ def get_args():
         print('Automatically adjusted branch and trunk layers for Fourier')
 
     if args.method == 'full_fourier':
-        args.num_inputs = args.num_input_fn * args.Nx 
+        args.num_inputs = args.num_input_fn * args.Nx * 2 # *2 for complex
         args.num_outputs = args.num_output_fn * args.Nx * (args.Nt //2 + 1) * 2 # *2 for complex
 
     
-    if args.problem == '1d_wave' and args.method == 'full_fourier':
-        time_period = (args.xmax - args.tmin)/args.IC['c']
-        print('Forced time domain length to equal time periodicity')
-        args.tmax = args.tmin + time_period
     
     #data
     if args.problem == 'harmonic_oscillator':
@@ -129,10 +131,18 @@ def get_args():
             args.IC = {'c': 5, 'type': 'periodic_gp', 'params': {'lengthscale':0.5, 'variance':1.0}} #make this harder
     #     args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}.pkl'
 
+    if args.problem == '1d_wave' and args.method == 'full_fourier':
+        time_period = (args.xmax - args.xmin)/args.IC['c']
+        print('Forced time domain length to equal time periodicity')
+        args.tmax = args.tmin + time_period
+
     if args.loss_weights is None:
         args.loss_weights = [1 for i in range(args.num_output_fn)]
 
     args.data_config = 'test'
+
+    if args.method == 'deeponet':
+        args.multi_output_strategy = args.strategy
 
     #log
     args.exp_n = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")

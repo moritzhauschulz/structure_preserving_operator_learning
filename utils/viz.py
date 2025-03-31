@@ -73,7 +73,7 @@ def compute_example_with_energy(i, args, data, model):
     example_u = data.branch_data[i*args.n_trunk].unsqueeze(0).T.to(args.device)
     output = model((example_u.T.repeat(args.n_trunk, 1), example_t.requires_grad_(True)), dummy, dummy)
     if isinstance(output, tuple):
-        output = output[0]
+        output = output[1]
     gradients = torch.autograd.grad(outputs=output[:, 0], inputs=example_t, grad_outputs=torch.ones_like(output[:, 0]), create_graph=True)[0]
     output = output.detach().cpu()
     example_u = example_u.detach().cpu()
@@ -118,11 +118,11 @@ def visualize_example_with_energy(example_type, args, label, y, out, out_hat, nr
     color = next(colors)
     line3, = ax2.plot(y, nrg, label=f'true energy', linestyle='-', color=color)
     color = next(colors)
-    #line4, = ax2.plot(y, nrg_hat, label=f'gradient-predicted energy', linestyle='-.', color=color)
-    #color = next(colors)
+    line4, = ax2.plot(y, nrg_hat, label=f'gradient-predicted energy', linestyle='-.', color=color)
+    color = next(colors)
     #line5, = ax1.plot(y, gradients, label=f'gradient', linestyle=':', color=color)
-    lines.extend([line1, line2, line3]) #, line4, line5
-    legend_labels.extend([line1.get_label(), line2.get_label(), line3.get_label()]) # line4.get_label(), line5.get_label()
+    lines.extend([line1, line2, line3, line4]) #, line4, line5
+    legend_labels.extend([line1.get_label(), line2.get_label(), line3.get_label(), line4.get_label()]) # line4.get_label(), line5.get_label()
     if args.num_outputs == 2:
         line6, = ax1.plot(y, out[:, 1], label=f'true velocity', linestyle='--', color=color)
         line7, = ax1.plot(y, out_hat[:, 1], label=f'predicted velocity', linestyle='solid', color=color)
@@ -223,7 +223,7 @@ def plot_1d_KdV_Soliton(args, h, x_res, a, c, model, save_dir):
     print(args.xmax, args.xmin, L)
 
     t_values = np.arange(args.tmin, args.tmax + h, h)  # Time steps for saving solutions
-    x = np.linspace(-L/2, L/2, int(L/x_res), endpoint=False)
+    x = np.linspace(-L/2, L/2, int(L/x_res, endpoint=False), endpoint=False)
 
     def exact_soliton(x, t, c, a):
         arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
@@ -272,7 +272,7 @@ def plot_1d_KdV_Soliton_ifft(args, h, x_res, a, c, model, save_dir):
     h=1
 
     t_values = np.arange(args.tmin, args.tmax + h, h)  # Time steps for saving solutions
-    x = np.linspace(-L/2, L/2, args.Nx)
+    x = np.linspace(-L/2, L/2, args.Nx, endpoint=False)
 
     plt.figure(figsize=(10, 6))
 
@@ -408,7 +408,7 @@ def plot_1d_KdV_evolution(args, i, data, model, save_dir=None, val=False) :
         plt.show()
 
     # Plot slice in time of kdv equation ground truth and prediction
-    x = np.linspace(-args.xmin, args.xmin, args.Nx)
+    x = np.linspace(-args.xmin, args.xmin, args.Nx, endpoint=False)
     plt.figure(figsize=(8, 5))
     
     # Use a colorblind-friendly palette
@@ -470,7 +470,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         suffix = ''
 
     num_t = args.Nt
-    x = np.linspace(-args.xmin, args.xmin, args.Nx)
+    x = np.linspace(-args.xmin, args.xmin, args.Nx, endpoint=False)
 
     if args.method == 'deeponet':
         gt_u = data.labels[:,0,:][i*num_t:(i+1)*num_t].squeeze(-1)
@@ -544,13 +544,6 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         # else:
         x = og_x.view(1, -1)
 
-        print(data.x.shape)
-        print(data.y.shape)
-
-        plt.plot(data.x[0,0,:].detach().numpy())
-        plt.plot(data.y[0,0,:,0].detach().numpy())
-        plt.show()
-
 
 
         all_output = model(x, og_x.unsqueeze(0), data.y[i,:,:,:].unsqueeze(0))
@@ -560,7 +553,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
             output = output_list[0]
             outputt = output_list[1]
 
-        example_t = torch.tensor(np.linspace(args.tmin, args.tmax, args.Nt)).to(args.device)
+        example_t = torch.tensor(np.linspace(args.tmin, args.tmax, args.Nt, endpoint=False)).to(args.device)
 
         output = all_output[0]
         output = output.squeeze(0).detach().cpu().numpy()
@@ -654,8 +647,8 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     # plt.plot(example_t.detach().cpu().numpy(), energy.detach().cpu().numpy(), label='Energy')
     # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
     plt.plot(example_t.detach().cpu().numpy(), true_energy.T.detach().cpu().numpy(), label='Ground Truth')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy'].T.detach().cpu().numpy(), label='Target Energy')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy'].T.detach().cpu().numpy(), label='OG Target Energy')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy'].T.detach().cpu().numpy(), label='target_energy', linestyle='solid')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy'].T.detach().cpu().numpy(), label='og_target_energy', linestyle='dotted')
     if learned_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), learned_energy.T.detach().cpu().numpy(), label='Learned Energy', linestyle='dotted')
     if current_energy is not None:
@@ -671,13 +664,28 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     else:
         plt.show()
 
+    plt.figure(figsize=(8, 5))
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy'].T.detach().cpu().numpy(), label='OG Target Energy')
+    plt.plot(example_t.detach().cpu().numpy(), true_energy.T.detach().cpu().numpy(), label='Ground Truth')
+    if current_energy is not None:
+        plt.plot(example_t.detach().cpu().numpy(), current_energy.T.detach().cpu().numpy(), label='Current Energy', linestyle='dotted')
+    plt.xlabel('Time')
+    plt.ylabel('Energy')
+    plt.title('Energy Evolution')
+    plt.grid(True)
+    plt.legend()
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_energy_reduced_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
     #plot the ut components
     plt.figure(figsize=(8, 5))
     # plt.plot(example_t.detach().cpu().numpy(), energy.detach().cpu().numpy(), label='Energy')
     # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['true_energy_u_component'].expand(example_t.shape).T.detach().cpu().numpy(), label='Ground Truth ux Component')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy_ux_component'].T.detach().cpu().numpy(), label='Target ux Component')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy_ux_component'].T.detach().cpu().numpy(), label='OG Target ux Component')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['true_energy_u_component'].expand(example_t.shape).T.detach().cpu().numpy(), label='Ground Truth ux Component', linestyle='dotted')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy_ux_component'].T.detach().cpu().numpy(), label='Target ux Component', linestyle='solid')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy_ux_component'].T.detach().cpu().numpy(), label='OG Target ux Component', linestyle='dotted')
 
     if learned_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), energy_components['learned_energy_u_component'].T.detach().cpu().numpy(), label='Learned Energy ux Component', linestyle='dotted')
@@ -699,9 +707,9 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     plt.figure(figsize=(8, 5))
     # plt.plot(example_t.detach().cpu().numpy(), energy.detach().cpu().numpy(), label='Energy')
     # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['true_energy_ut_component'].expand(example_t.shape).T.detach().cpu().numpy(), label='Ground Truth ut Component')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy_ut_component'].T.detach().cpu().numpy(), label='Target ut Component')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy_ut_component'].T.detach().cpu().numpy(), label='OG Target ut Component')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['true_energy_ut_component'].expand(example_t.shape).T.detach().cpu().numpy(), label='Ground Truth ut Component',linestyle='dotted')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy_ut_component'].T.detach().cpu().numpy(), label='Target ut Component', linestyle='solid')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy_ut_component'].T.detach().cpu().numpy(), label='OG Target ut Component', linestyle='dotted')
     if learned_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), energy_components['learned_energy_ut_component'].T.detach().cpu().numpy(), label='Learned Energy ut Component', linestyle='dotted')
     if current_energy is not None:
@@ -714,6 +722,35 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     plt.legend()
     if save_dir:
         plt.savefig(f"{save_dir}/1d_wave_energy_ut_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+    # Plot slice in time of kdv equation ground truth and prediction
+    x = np.linspace(-args.xmin, args.xmin, args.Nx, endpoint=False)
+    plt.figure(figsize=(8, 5))
+    
+    # Use a colorblind-friendly palette
+    color_cycle = cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])
+    num_slices = 5
+    
+    for k, t in enumerate(range(0, num_t, num_t//num_slices)):
+        if k >= num_slices:
+            break
+        color = next(color_cycle)
+        plt.plot(x, gt_u[:,t], 
+                label=f't={t*args.t_res:.1f} GT', 
+                color=color)
+        plt.plot(x, output[:,t], 
+                label=f't={t*args.t_res:.1f} Pred', 
+                color=color, 
+                linestyle='dashed')
+    
+    plt.xlabel('x')
+    plt.ylabel('u')
+    plt.title('KdV Equation: Ground Truth vs Prediction')
+    plt.legend()
+    if save_dir:
+        plt.savefig(f"{save_dir}/1d_wave_slices_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
         plt.show()
     

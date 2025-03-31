@@ -12,7 +12,7 @@ from deepxde.nn.deeponet_strategy import (
     SplitBranchStrategy,
     SplitTrunkStrategy,
 )
-from .utils import OrthonormalBranchStrategy, OrthonormalBranchNormalTrunkStrategy, OrthonormalBranchNormalTrunkRegStrategy, QRStrategy, FourierStrategy, FourierQRStrategy, FourierNormStrategy
+from .utils import OrthonormalBranchStrategy, OrthonormalBranchNormalTrunkStrategy, OrthonormalBranchNormalTrunkRegStrategy, QRStrategy, FourierStrategy, FourierQRStrategy, FourierNormStrategy, NormalStrategy
 
 
 class DeepONet(NN):
@@ -99,6 +99,8 @@ class DeepONet(NN):
             self.multi_output_strategy = FourierQRStrategy(args, self)
         elif multi_output_strategy in {'FourierNorm'}:
             self.multi_output_strategy = FourierNormStrategy(args, self)
+        elif multi_output_strategy in {'normal'}:
+            self.multi_output_strategy = NormalStrategy(args, self)
         else:
             self.multi_output_strategy = {
                 None: SingleOutputStrategy,
@@ -110,8 +112,8 @@ class DeepONet(NN):
                 "normal_trunk": OrthonormalBranchNormalTrunkStrategy,
                 "orthonormal_branch_normal_trunk": OrthonormalBranchNormalTrunkStrategy,
                 "orthonormal_branch_normal_trunk_reg": OrthonormalBranchNormalTrunkRegStrategy,
-                "QR": QRStrategy
-            }[multi_output_strategy](self)
+                "QR": QRStrategy,
+            }[multi_output_strategy](args, self)
 
         self.branch, self.trunk = self.multi_output_strategy.build(
             layer_sizes_branch, layer_sizes_trunk

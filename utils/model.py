@@ -1,7 +1,7 @@
 import torch 
 import torch.nn as nn
 from .deeponet import DeepONet
-from utils.utils import FullFourierStrategy, FullFourierNormStrategy
+from utils.utils import FullFourierStrategy, FullFourierNormStrategy, FullFourierAvgNormStrategy
 
 
 class Swish(nn.Module):
@@ -123,6 +123,8 @@ class FullFourier(nn.Module):
             self.strategy = FullFourierStrategy(args, self)
         elif strategy == 'FullFourierNorm':
             self.strategy = FullFourierNormStrategy(args, self)
+        elif strategy == 'FullFourierAvgNorm':
+            self.strategy = FullFourierAvgNormStrategy(args, self)
 
         # apply initialization
         if init == "glorot":
@@ -138,6 +140,8 @@ class FullFourier(nn.Module):
                 nn.init.zeros_(layer.bias)  # Initialize biases to zero
     
     def forward(self, input,x=None, y=None):
+        input_fourier = torch.fft.fftn(input, dim=[-1,-2])
+        input_fourier = torch.cat((input_fourier.real, input_fourier.imag), dim=-1)
         out = self.layers(input)
         return self.strategy.call(out, x, y)
 
