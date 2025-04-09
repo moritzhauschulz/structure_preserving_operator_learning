@@ -99,7 +99,7 @@ class CustomDeepONet(nn.Module):
 
         return out
     
-class FullFourier(nn.Module):
+class c(nn.Module):
     def __init__(self, args, hidden_layers, activation=Swish, num_outputs=1, num_inputs=1, init='glorot', strategy='Fourier'):
         super(FullFourier, self).__init__()
         self.hidden_layers = hidden_layers

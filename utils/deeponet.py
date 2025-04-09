@@ -12,7 +12,7 @@ from deepxde.nn.deeponet_strategy import (
     SplitBranchStrategy,
     SplitTrunkStrategy,
 )
-from .utils import OrthonormalBranchStrategy, OrthonormalBranchNormalTrunkStrategy, OrthonormalBranchNormalTrunkRegStrategy, QRStrategy, FourierStrategy, FourierQRStrategy, FourierNormStrategy, NormalStrategy
+from .utils import OrthonormalBranchStrategy, OrthonormalBranchNormalTrunkStrategy, VanillaStrategy, QRStrategy, FourierStrategy, FourierQRStrategy, FourierNormStrategy, NormalStrategy
 
 
 class DeepONet(NN):
@@ -111,7 +111,7 @@ class DeepONet(NN):
                 "orthonormal_branch": OrthonormalBranchStrategy,
                 "normal_trunk": OrthonormalBranchNormalTrunkStrategy,
                 "orthonormal_branch_normal_trunk": OrthonormalBranchNormalTrunkStrategy,
-                "orthonormal_branch_normal_trunk_reg": OrthonormalBranchNormalTrunkRegStrategy,
+                "vanilla": VanillaStrategy,
                 "QR": QRStrategy,
             }[multi_output_strategy](args, self)
 

@@ -27,7 +27,7 @@ class CustomStrategy(DeepONetStrategy):
             layer_sizes_trunk
         )
     
-class OrthonormalBranchNormalTrunkRegStrategy(CustomStrategy):
+class VanillaStrategy(CustomStrategy):
     def call(self, x_func, x_loc,x,y):
         branch_out = self.net.branch(x_func)
         x_loc = self.net.activation_trunk(self.net.trunk(x_loc))
