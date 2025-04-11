@@ -73,7 +73,7 @@ def compute_example_with_energy(i, args, data, model):
     example_u = data.branch_data[i*args.n_trunk].unsqueeze(0).T.to(args.device)
     output = model((example_u.T.repeat(args.n_trunk, 1), example_t.requires_grad_(True)), dummy, dummy)
     if isinstance(output, tuple):
-        output = output[1]
+        output = output[0]
     gradients = torch.autograd.grad(outputs=output[:, 0], inputs=example_t, grad_outputs=torch.ones_like(output[:, 0]), create_graph=True)[0]
     output = output.detach().cpu()
     example_u = example_u.detach().cpu()
@@ -101,7 +101,29 @@ def compute_example_with_energy(i, args, data, model):
     )
 
 def visualize_example_with_energy(example_type, args, label, y, out, out_hat, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, gradients):
+    
+    # Create dictionary to store data
+    data_dict = {
+        'time': y.squeeze(-1).numpy(),
+        'true_position': out[:, 0].numpy(),
+        'predicted_position': out_hat[:, 0].numpy(), 
+        'true_energy': nrg.numpy(),
+        'gradient_predicted_energy': nrg_hat.numpy()
+    }
 
+    if args.num_outputs == 2:
+        data_dict.update({
+            'true_velocity': out[:, 1].numpy(),
+            'predicted_velocity': out_hat[:, 1].numpy(),
+            'velocity_predicted_energy': vel_nrg_hat.numpy()
+        })
+
+    # Save to CSV
+    df = pd.DataFrame(data_dict)
+    csv_filename = f'{args.save_plots}/data_q0={label[0].item():.2f}_p0={label[1].item():.2f}_omega={label[2].item():.2f}_{example_type}.csv'
+    df.to_csv(csv_filename, index=False)
+
+    # Original plotting code
     dummy = None
     fig, ax1 = plt.subplots(figsize=(8, 6))
     colors = cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])
@@ -120,18 +142,18 @@ def visualize_example_with_energy(example_type, args, label, y, out, out_hat, nr
     color = next(colors)
     line4, = ax2.plot(y, nrg_hat, label=f'gradient-predicted energy', linestyle='-.', color=color)
     color = next(colors)
-    #line5, = ax1.plot(y, gradients, label=f'gradient', linestyle=':', color=color)
-    lines.extend([line1, line2, line3, line4]) #, line4, line5
-    legend_labels.extend([line1.get_label(), line2.get_label(), line3.get_label(), line4.get_label()]) # line4.get_label(), line5.get_label()
+    lines.extend([line1, line2, line3, line4])
+    legend_labels.extend([line1.get_label(), line2.get_label(), line3.get_label(), line4.get_label()])
+
     if args.num_outputs == 2:
         line6, = ax1.plot(y, out[:, 1], label=f'true velocity', linestyle='--', color=color)
         line7, = ax1.plot(y, out_hat[:, 1], label=f'predicted velocity', linestyle='solid', color=color)
         color = next(colors)
         line8, = ax2.plot(y, vel_nrg_hat, label=f'velocity-predicted energy', linestyle=(0,(1, 1)), color=color)
         color = next(colors)
-        # line9, = ax2.plot(y, numerical_nrg, label=f'numerically-predicted energy', linestyle='', color=color)  # numerical energy
         lines.extend([line6, line7, line8, line8])
         legend_labels.extend([line6.get_label(), line7.get_label(), line8.get_label()])
+
     ax1.set_xlabel('Time', fontsize=14)
     ax1.set_ylabel('Position / Velocity', fontsize=14)
     ax2.set_ylabel('Energy', fontsize=14)
@@ -152,6 +174,7 @@ def wandb_viz_loss(exp_n, save_dir=None, exclude_val=False, wandb_user='moritz-h
     #get the wandb run data imported
     api = wandb.Api()
     run = api.run(f"{wandb_user}/{wandb_project}/{exp_n}")
+    print('succesfully accessed wandb')
 
     metrics = run.history()  # Replace "metric_name" with the logged key
 
@@ -710,6 +733,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     plt.plot(example_t.detach().cpu().numpy(), energy_components['true_energy_ut_component'].expand(example_t.shape).T.detach().cpu().numpy(), label='Ground Truth ut Component',linestyle='dotted')
     plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy_ut_component'].T.detach().cpu().numpy(), label='Target ut Component', linestyle='solid')
     plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy_ut_component'].T.detach().cpu().numpy(), label='OG Target ut Component', linestyle='dotted')
+
     if learned_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), energy_components['learned_energy_ut_component'].T.detach().cpu().numpy(), label='Learned Energy ut Component', linestyle='dotted')
     if current_energy is not None:

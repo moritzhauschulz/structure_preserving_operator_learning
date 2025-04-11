@@ -182,8 +182,9 @@ class NormalStrategy(CustomStrategy):
             zero_mask = (norms == 0)
             norms = norms + zero_mask.float()
             # print(out.shape)
-            normalized_ch0 = out[:,0,:] / torch.sqrt(norms) * torch.sqrt(true_nrg)
-            out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
+            # normalized_ch0 = out[:,0,:] / torch.sqrt(norms) * torch.sqrt(true_nrg)
+            # out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
+            out = out / torch.sqrt(norms).unsqueeze(1) * torch.sqrt(true_nrg).unsqueeze(1)
         else:
             for i in range(self.args.num_norm_refinements):
                 gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
@@ -244,6 +245,7 @@ class FourierStrategy(CustomStrategy):
         self.num_output_fn = args.num_output_fn
         self.IC = args.IC
         self.i = 0
+        self.filter_cutoff_ratio = args.filter_cutoff_ratio
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
         if layer_sizes_branch[-1] % self.net.num_outputs != 0:
@@ -302,6 +304,7 @@ class FourierNormStrategy(CustomStrategy):
         self.IC = args.IC
         self.num_output_fn = args.num_output_fn
         self.i = 0
+        self.filter_cutoff_ratio = args.filter_cutoff_ratio
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
         if layer_sizes_branch[-1] % self.net.num_outputs != 0:
@@ -405,6 +408,7 @@ class FourierQRStrategy(CustomStrategy):
         self.L = args.xmax - args.xmin
         self.K = args.Nx
         self.problem = args.problem
+        self.filter_cutoff_ratio = args.filter_cutoff_ratio
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
         if layer_sizes_branch[-1] % self.net.num_outputs != 0:
@@ -568,30 +572,29 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
         
     return true_energy, current_energy, learned_energy, energy_components
 
-def compute_energies_full_fourier(self, prelim_out, four_coef, og_x, og_y):
+def compute_energies_full_fourier(self, prelim_out, four_coef, og_x, og_y, in_physical_space=False):
+    if in_physical_space:
+        # prelim_out = prelim_out.detach().cpu().numpy()
+        dx = self.Lx/self.Nx  # space step
+        dt = self.Lt/self.Nt
+        # du_dx, du_dt = np.gradient(prelim_out, dx, dt, axis=(-2, -1))
+        prelim_out = prelim_out.detach()
+        # dx = self.Lx/self.Nx  # space step
+        # dt = self.Lt/self.Nt
+        du_dx = torch.gradient(prelim_out, dim=-2)[0]/dx 
+        du_dt = torch.gradient(prelim_out, dim=-1)[0]/dt
+        phys_current_energy_ux_component = torch.sum(self.IC['c']**2 * du_dx**2, dim=(-2)) * dx
+        phys_current_energy_ut_component = torch.sum(du_dt**2, dim=(-2)) * dx 
+        phys_current_energy = phys_current_energy_ut_component + phys_current_energy_ux_component
+        # phys_current_energy_ux_component = np.sum(self.IC['c']**2 * du_dx**2, axis=(-2)) * dx
+        # phys_current_energy_ut_component = np.sum(du_dt**2, axis=(-2)) * dx
+        # phys_current_energy = phys_current_energy_ut_component + phys_current_energy_ux_component
+
+        
     if self.problem == '1d_wave':
 
         y = og_y[:,0,:,:]
         yt = og_y[:,1,:,:]
-
-        # #check peridicity in time
-        # start = y[:, :, 0]    # u(x, t=0)
-        # end   = y[:, :, -1]   # u(x, t=T)
-
-        # diff_t = torch.norm(start - end, dim=1)
-        # assert torch.all(diff_t < 1e-3), f'Time periodicity check failed. Max diff: {diff_t.max().item():.2e}'
-
-        # #check periodicity in space
-        # start = y[:, 0, :]    # u(x=0, t)
-        # end   = y[:, -1, :]   # u(x=L, t)
-        
-        # diff_x = torch.norm(start - end, dim=1) 
-        # if not torch.all(diff_x < 1e-3):
-        #     failed_indices = torch.where(diff_x >= 1e-3)[0]
-        #     failed_times = torch.where(torch.abs(y[failed_indices[0], 0, :] - y[failed_indices[0], -1, :]) >= 1e-3)[0]
-        #     print(f'Space periodicity check failed at time indices: {failed_times}')
-        #     assert False, f'Space periodicity check failed. Max diff: {diff_x.max().item():.2e}'
-
 
         wave_k = torch.fft.fftfreq(self.Nx, d=(self.Lx/self.Nx)) * 2 * np.pi  # Wave numbers
 
@@ -671,6 +674,10 @@ def compute_energies_full_fourier(self, prelim_out, four_coef, og_x, og_y):
                          'learned_energy_u_component': learned_energy_ux_component, 'learned_energy_ut_component': learned_energy_ut_component,
                          'target_energy': target_energy, 'target_energy_ux_component': target_energy_ux_component, 'target_energy_ut_component': target_energy_ut_component,
                             'og_target_energy': og_target_energy, 'og_target_energy_ux_component': og_target_energy_u_component, 'og_target_energy_ut_component': og_target_energy_ut_component}
+        if in_physical_space:
+            energy_components['phys_current_energy_ux_component']= phys_current_energy_ux_component
+            energy_components['phys_current_energy_ut_component']= phys_current_energy_ut_component
+            energy_components['phys_current_energy']= phys_current_energy
 
         # print(f'true energy {true_energy.mean()}')
         # print(f'current energy {current_energy.mean()}')
@@ -684,6 +691,17 @@ def compute_energies_full_fourier(self, prelim_out, four_coef, og_x, og_y):
 
 
 
+
+
+def low_pass_filter_fft(data_fft, cutoff_ratio=0.8):
+    """
+    Zero out high frequency components beyond a certain ratio of the Nyquist frequency.
+    """
+    Nt = data_fft.shape[-1]
+    cutoff = int(cutoff_ratio * (Nt // 2))
+    filtered_fft = data_fft.clone()
+    filtered_fft[..., cutoff:Nt - cutoff] = 0
+    return filtered_fft
 
 
         
@@ -708,20 +726,14 @@ def project_fourier_coefficients(self, prelim_out, four_coef, x_func, x_loc, x, 
         norming_energy = current_energy
     elif self.num_output_fn == 2:
         norming_energy = learned_energy
-    # norming_energy = current_energy if learned_energy is None else learned_energy
 
-    # print(norming_energy.shape)
-    # print(true_energy.shape)
     mask = (norming_energy == 0)
     scaling_factor = torch.zeros_like(true_energy)
     scaling_factor[~mask] = torch.sqrt(true_energy[~mask] / norming_energy[~mask])
     scaling_factor = scaling_factor[:,None]
-    # print(scaling_factor)
 
     # Check if scaling factor is complex
     assert not torch.is_complex(scaling_factor), "Scaling factor is complex"
-
-    # print(scaling_factor.shape)
 
     four_coef_proj = four_coef.squeeze(-1) * scaling_factor.expand(-1, four_coef.shape[1]) 
 
@@ -827,6 +839,8 @@ class FullFourierStrategy():
         self.num_output_fn = args.num_output_fn
         self.IC = args.IC
         self.i = 0
+        self.t_filter_cutoff_ratio = args.t_filter_cutoff_ratio
+        self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
 
     def call(self, out, x=None, y=None):
         four_coef = out
@@ -843,7 +857,12 @@ class FullFourierStrategy():
 
             # use constructor to complete matrix
             F_full = construct_full_fourier_matrix(self.Nx, self.Nt, four_coef)
-
+            # Apply low-pass filtering in time dimension only
+            t_cutoff = int(self.t_filter_cutoff_ratio * (self.Nt // 2))
+            x_cutoff = int(self.x_filter_cutoff_ratio * (self.Nx // 2))
+            F_full = F_full.clone()
+            F_full[:,:,t_cutoff:-t_cutoff] = 0
+            F_full[:,x_cutoff:-x_cutoff,:] = 0
             f_full = torch.fft.ifftn(F_full, dim=(-2, -1))
             check_ifft_real(f_full)
             out_list.append(f_full)
@@ -869,6 +888,11 @@ class FullFourierNormStrategy():
         self.num_output_fn = args.num_output_fn
         self.IC = args.IC
         self.i = 0
+        self.t_filter_cutoff_ratio = args.t_filter_cutoff_ratio
+        self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
+        self.inference_norm = args.inference_norm
+        self.num_norm_refinements = args.num_norm_refinements
+
 
     def call(self, out, x=None, y=None):
         four_coef = out
@@ -885,7 +909,12 @@ class FullFourierNormStrategy():
 
             # use constructor to complete matrix
             F_full = construct_full_fourier_matrix(self.Nx, self.Nt, four_coef)
-
+            # Apply low-pass filtering in time dimension only
+            t_cutoff = int(self.t_filter_cutoff_ratio * (self.Nt // 2))
+            x_cutoff = int(self.x_filter_cutoff_ratio * (self.Nx // 2))
+            F_full = F_full.clone()
+            F_full[:,:,t_cutoff:-t_cutoff] = 0
+            F_full[:,x_cutoff:-x_cutoff,:] = 0
             f_full = torch.fft.ifftn(F_full, dim=(-2, -1))
             check_ifft_real(f_full)
             out_list.append(f_full)
@@ -894,25 +923,13 @@ class FullFourierNormStrategy():
         four_coef = torch.cat(new_four_coef_list, dim=1)
         energies = compute_energies_full_fourier(self, out, four_coef, x, y)
 
-        scaling_factor  = scaling_factor_full_fourier(self, out, four_coef, energies) #is it okay to just apply this to the transformed output?
+        if not self.inference_norm or not self.net.training:
+            for i in range(self.num_norm_refinements):
+                scaling_factor  = scaling_factor_full_fourier(self, out, four_coef, energies)#is it okay to just apply this to the transformed output?
+                out = out * scaling_factor
+                four_coef = torch.fft.fftn(out, dim=(-2, -1))
+                energies = compute_energies_full_fourier(self, out, four_coef, x, y, in_physical_space=True)
 
-        out = out * scaling_factor
-        four_coef = four_coef * scaling_factor
-        energies = compute_energies_full_fourier(self, out, four_coef, x, y)
-
-        # updated_four_coef = torch.fft.fftn(out, dim=(-2, -1))
-
-        # four_coef_list = [updated_four_coef[:,i*int(self.Nx):(i+1)*int(self.Nx),:] for i in range(self.num_output_fn)]
-        # out_list = []
-        # new_four_coef_list = []
-        # for four_coef in four_coef_list:
-        #     f_full = torch.fft.ifftn(four_coef, dim=(-2, -1))
-        #     check_ifft_real(f_full)
-        #     out_list.append(f_full)
-        #     new_four_coef_list.append(four_coef)
-        # out = torch.cat(out_list, dim=1)  #is this valid
-        # four_coef = torch.cat(new_four_coef_list, dim=1) 
-        # energies = compute_energies_full_fourier(self, out, updated_four_coef, x, y)
         self.i += 1
         return out.real, energies
 
@@ -928,6 +945,9 @@ class FullFourierAvgNormStrategy():
         self.num_output_fn = args.num_output_fn
         self.IC = args.IC
         self.i = 0
+        self.t_filter_cutoff_ratio = args.t_filter_cutoff_ratio
+        self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
+        self.inference_norm = args.inference_norm
 
     def call(self, out, x=None, y=None):
         four_coef = out
@@ -944,7 +964,12 @@ class FullFourierAvgNormStrategy():
 
             # use constructor to complete matrix
             F_full = construct_full_fourier_matrix(self.Nx, self.Nt, four_coef)
-
+            # Apply low-pass filtering in time dimension only
+            t_cutoff = int(self.t_filter_cutoff_ratio * (self.Nt // 2))
+            x_cutoff = int(self.x_filter_cutoff_ratio * (self.Nx // 2))
+            F_full = F_full.clone()
+            F_full[:,:,t_cutoff:-t_cutoff] = 0
+            F_full[:,x_cutoff:-x_cutoff,:] = 0
             f_full = torch.fft.ifftn(F_full, dim=(-2, -1))
             check_ifft_real(f_full)
             out_list.append(f_full)
@@ -953,11 +978,12 @@ class FullFourierAvgNormStrategy():
         four_coef = torch.cat(new_four_coef_list, dim=1)
         energies = compute_energies_full_fourier(self, out, four_coef, x, y)
 
-        scaling_factor  = scaling_factor_full_fourier(self, out, four_coef, energies) #is it okay to just apply this to the transformed output?
+        if not self.inference_norm or not self.net.training:
+            scaling_factor  = scaling_factor_full_fourier(self, out, four_coef, energies) #is it okay to just apply this to the transformed output?
 
-        out = out * scaling_factor.mean(dim=-1, keepdim=True).expand_as(out)
-        four_coef = four_coef * scaling_factor.mean(dim=-1, keepdim=True).expand_as(four_coef)
-        energies = compute_energies_full_fourier(self, out, four_coef, x, y)
+            out = out * scaling_factor.mean(dim=-1, keepdim=True).expand_as(out)
+            four_coef = four_coef * scaling_factor.mean(dim=-1, keepdim=True).expand_as(four_coef)
+            energies = compute_energies_full_fourier(self, out, four_coef, x, y)
 
 
         # updated_four_coef = torch.fft.fftn(out, dim=(-2, -1))

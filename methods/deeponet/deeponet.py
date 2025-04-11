@@ -160,6 +160,8 @@ def main_loop(args, data):
             x[0] = x[0].to(args.device)
             x[1] = x[1].to(args.device)
 
+
+
             loss, losses = compute_loss(args,i, model, x, y)
 
             optimizer.zero_grad()
@@ -167,21 +169,32 @@ def main_loop(args, data):
             optimizer.step()
             train_loss += loss.item()
 
-            #log
-            for key, value in losses.items():
+
+        if i % args.eval_every == 0 or i ==1:
+            train_val_loss = 0
+
+            model.eval()
+
+            for batch_idx, (x, y) in enumerate(train_loader):
+                x[0] = x[0].to(args.device)
+                x[1] = x[1].to(args.device)
+                
+                loss, losses = compute_loss(args,i, model, x, y)
+                train_val_loss += loss.item()
+                for key, value in losses.items():
                     key = f'{key}_train'
                     if key not in epoch_losses:
                         epoch_losses[key] = []
                     epoch_losses[key].append(value.item())
 
-        if i % args.eval_every == 0 or i ==1:
+
             val_loss = 0
+
 
             for batch_idx, (x, y) in enumerate(val_loader):
                 x[0] = x[0].to(args.device)
                 x[1] = x[1].to(args.device)
                 
-
                 loss, losses = compute_loss(args,i, model, x, y)
                 val_loss += loss.item()
                 for key, value in losses.items():
@@ -190,18 +203,21 @@ def main_loop(args, data):
                         epoch_losses[key] = []
                     epoch_losses[key].append(value.item())
 
-            pbar.set_description(f'epoch {i}; loss {train_loss}; val_loss {val_loss}')
+            pbar.set_description(f'epoch {i}; loss {train_loss}; val_loss {val_loss}; train_val_loss {train_val_loss}')
             val_losses.append(val_loss)
             train_losses.append(train_loss)
-            with open(f'{args.save_models}/losses.csv', mode='w', newline='') as file:
+            with open(f'{args.save_models}/losses.csv', mode='a', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(['Epoch', 'Train Loss', 'Validation Loss'])
-                writer.writerow([i, train_loss, val_loss])
+                writer.writerow([i, train_val_loss, val_loss])
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_model_state = model.state_dict()
                 best_model_epoch = i
+
+            model.train()
+
         for key, value in epoch_losses.items():
                 epoch_losses[key] = np.mean(value)
         

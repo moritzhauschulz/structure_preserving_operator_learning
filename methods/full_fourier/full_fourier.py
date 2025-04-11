@@ -169,16 +169,28 @@ def main_loop(args, data):
             optimizer.step()
             train_loss += loss.item()
 
-            #log
-            for key, value in losses.items():
+
+        if i % args.eval_every == 0 or i ==1:
+
+            model.eval()
+
+            train_val_loss = 0
+            
+            for batch_idx, (x, y) in enumerate(train_loader):
+                x = x.to(args.device)
+                y = y.to(args.device)
+                
+
+                loss, losses = compute_loss(args,i, model, x, y)
+                train_val_loss += loss.item()
+
+                for key, value in losses.items():
                     key = f'{key}_train'
                     if key not in epoch_losses:
                         epoch_losses[key] = []
                     epoch_losses[key].append(value.item())
 
-        if i % args.eval_every == 0 or i ==1:
             val_loss = 0
-
             for batch_idx, (x, y) in enumerate(val_loader):
                 x = x.to(args.device)
                 y = y.to(args.device)
@@ -192,7 +204,7 @@ def main_loop(args, data):
                         epoch_losses[key] = []
                     epoch_losses[key].append(value.item())
 
-            pbar.set_description(f'epoch {i}; loss {train_loss}; val_loss {val_loss}')
+            pbar.set_description(f'epoch {i}; loss {train_loss}; val_loss {val_loss}; train_val_loss {train_val_loss}')
             val_losses.append(val_loss)
             train_losses.append(train_loss)
             with open(f'{args.save_models}/losses.csv', mode='w', newline='') as file:
@@ -204,13 +216,15 @@ def main_loop(args, data):
                 best_val_loss = val_loss
                 best_model_state = model.state_dict()
                 best_model_epoch = i
-        for key, value in epoch_losses.items():
-                epoch_losses[key] = np.mean(value)
+
+            model.train()
+
         
         if args.wandb:
             wandb.log({'epoch': i, **epoch_losses})
 
         scheduler.step()
+
 
     if args.save_model:
         torch.save(model.state_dict(), args.save_models + '/final_ckpt.pth')

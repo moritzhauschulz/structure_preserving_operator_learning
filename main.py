@@ -47,6 +47,7 @@ def get_args():
     parser.add_argument('--nrg_weight', type=float, default=None, help='weight on nrg loss')
     parser.add_argument('--loss_weights', type=list, default=None, help='weight on nrg loss')
     parser.add_argument('--hidden_layers', type=int, nargs='+', default=[128, 128, 128], help='Branch layers')
+    parser.add_argument('--inference_norm', type=bool, default=False, help='True if only norming at infrence time')
 
     temp_args, _ = parser.parse_known_args()
 
@@ -54,8 +55,6 @@ def get_args():
     parser.add_argument('--data_dt', type=float, default=0.01, help='weight on nrg loss')
     parser.add_argument('--data_modes', type=int, default=10, help='weight on nrg loss')
     parser.add_argument('--zero_zero_mode', type=bool, default=False, help='force zero mode to zero')
-
-    
 
     #optimizer
     parser.add_argument('--optimizer', type=str, default='Adam', help='Optimizer')
@@ -68,6 +67,9 @@ def get_args():
     parser.add_argument('--use_ifft', type=bool, default=False, help='Whether to use ifft – only relevant for some problems')
     parser.add_argument('--activation', type=str, default='swish', help='Trunk layers')
     parser.add_argument('--num_inputs', type=int, default=1, help='Number of inputs')
+    parser.add_argument('--t_filter_cutoff_ratio', type=float, default=1, help='Filter cutoff ratio for time derivative')
+    parser.add_argument('--x_filter_cutoff_ratio', type=float, default=1, help='Filter cutoff ratio for time derivative')
+
 
     #deeponet
     parser.add_argument('--n_branch', type=int, default=50, help='Number of branches')
@@ -80,7 +82,7 @@ def get_args():
 
     #nrg
     parser.add_argument('--use_implicit_nrg', type=bool, default=False, help='Use implicit nrg')
-    parser.add_argument('--num_norm_refinements', type=int, default=0, help='Number of refinements')
+    parser.add_argument('--num_norm_refinements', type=int, default=1, help='Number of refinements')
     parser.add_argument('--detach', type=bool, default=False, help='Detach?')
 
 
@@ -110,7 +112,8 @@ def get_args():
         print('Automatically adjusted branch and trunk layers for Fourier')
 
     if args.method == 'full_fourier':
-        args.num_inputs = args.num_input_fn * args.Nx * 2 # *2 for complex
+        args.num_inputs = args.num_input_fn * args.Nx
+        print(f'Automatically adjusted num_inputs for full fourier to {args.num_inputs}')
         args.num_outputs = args.num_output_fn * args.Nx * (args.Nt //2 + 1) * 2 # *2 for complex
 
     
@@ -119,17 +122,17 @@ def get_args():
     if args.problem == 'harmonic_oscillator':
         if temp_args.IC is None:
             args.IC = {'q0': [-1,1], 'p0': [-1,1], 'omega': [1,1]}
-        args.data_config = f'_q0_{args.IC["q0"]}_p0_{args.IC["p0"]}_omega_{args.IC["omega"]}_tmin_{args.tmin}_tmax_{args.tmax}_num_out_{args.num_outputs}.pkl'
+        args.data_config = f'_q0_{args.IC["q0"]}_p0_{args.IC["p0"]}_omega_{args.IC["omega"]}_tmin_{args.tmin}_tmax_{args.tmax}_num_out_{args.num_outputs}_nbranch_{args.n_branch}.pkl'
 
     if args.problem == '1d_KdV_Soliton':
         if temp_args.IC is None:
             args.IC = {'c': [2.5,2.5], 'a': [-0,0]} #make this harder
-        args.data_config = f'_c_{args.IC["c"]}_a_{args.IC["a"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}.pkl'
+        args.data_config = f'_c_{args.IC["c"]}_a_{args.IC["a"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}_nbranch_{args.n_branch}.pkl'
 
     if args.problem == '1d_wave':
         if temp_args.IC is None:
             args.IC = {'c': 5, 'type': 'periodic_gp', 'params': {'lengthscale':0.5, 'variance':1.0}} #make this harder
-    #     args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}.pkl'
+        args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}_nbranch_{args.n_branch}_data_dt_{args.data_dt}.pkl'
 
     if args.problem == '1d_wave' and args.method == 'full_fourier':
         time_period = (args.xmax - args.xmin)/args.IC['c']
@@ -138,8 +141,6 @@ def get_args():
 
     if args.loss_weights is None:
         args.loss_weights = [1 for i in range(args.num_output_fn)]
-
-    args.data_config = 'test'
 
     if args.method == 'deeponet':
         args.multi_output_strategy = args.strategy
