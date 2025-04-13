@@ -122,19 +122,19 @@ def get_args():
     if args.problem == 'harmonic_oscillator':
         if temp_args.IC is None:
             args.IC = {'q0': [-1,1], 'p0': [-1,1], 'omega': [1,1]}
-        args.data_config = f'_q0_{args.IC["q0"]}_p0_{args.IC["p0"]}_omega_{args.IC["omega"]}_tmin_{args.tmin}_tmax_{args.tmax}_num_out_{args.num_outputs}_nbranch_{args.n_branch}.pkl'
+        args.data_config = f'_q0_{args.IC["q0"]}_p0_{args.IC["p0"]}_omega_{args.IC["omega"]}_tmin_{args.tmin}_tmax_{args.tmax}_nbranch_{args.n_branch}_method_{args.method}.pkl'
 
     if args.problem == '1d_KdV_Soliton':
         if temp_args.IC is None:
             args.IC = {'c': [2.5,2.5], 'a': [-0,0]} #make this harder
-        args.data_config = f'_c_{args.IC["c"]}_a_{args.IC["a"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}_nbranch_{args.n_branch}.pkl'
+        args.data_config = f'_c_{args.IC["c"]}_a_{args.IC["a"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_nbranch_{args.n_branch}_method_{args.method}.pkl'
 
     if args.problem == '1d_wave':
         if temp_args.IC is None:
             args.IC = {'c': 5, 'type': 'periodic_gp', 'params': {'lengthscale':0.5, 'variance':1.0}} #make this harder
-        args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_num_out_{args.num_outputs}_nbranch_{args.n_branch}_data_dt_{args.data_dt}.pkl'
+        args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_nbranch_{args.n_branch}_data_dt_{args.data_dt}_method_{args.method}.pkl'
 
-    if args.problem == '1d_wave' and args.method == 'full_fourier':
+    if args.problem == '1d_wave':
         time_period = (args.xmax - args.xmin)/args.IC['c']
         print('Forced time domain length to equal time periodicity')
         args.tmax = args.tmin + time_period

@@ -502,14 +502,15 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         example_t.requires_grad_(True)
         example_u = data.branch_data[i*num_t].view(1,-1).to(args.device)
 
-        x=(data.branch_data[i*num_t].unsqueeze(0).repeat(num_t,1,1),)
+        x_in=(data.branch_data[i*num_t].unsqueeze(0).repeat(num_t,1,1),)
         y=data.labels[i*num_t:(i+1)*num_t,:,:]
 
-        all_output = model((example_u.repeat(num_t, 1), example_t.requires_grad_(True)),x=x,y=y)
+        all_output = model((example_u.repeat(num_t, 1), example_t.requires_grad_(True)),x=x_in,y=y)
         output = all_output[0]
-        true_energy = all_output[1][-1][0]
-        current_energy = all_output[1][-1][1]
-        learned_energy = all_output[1][-1][2]
+        true_energy = all_output[-1][-1][0]
+        current_energy = all_output[-1][-1][1]
+        learned_energy = all_output[-1][-1][2]
+        energy_components = all_output[-1][-1][3]
 
         if args.num_output_fn == 2:
             output_list = [output[:, i*int(output.shape[1]//args.num_output_fn):(i+1)*int(output.shape[1]//args.num_output_fn)] for i in range(args.num_output_fn)]
@@ -666,12 +667,14 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
             plt.show()
 
     # Plot energy over time
+    print(example_t.shape)
     plt.figure(figsize=(8, 5))
     # plt.plot(example_t.detach().cpu().numpy(), energy.detach().cpu().numpy(), label='Energy')
     # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
     plt.plot(example_t.detach().cpu().numpy(), true_energy.T.detach().cpu().numpy(), label='Ground Truth')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy'].T.detach().cpu().numpy(), label='target_energy', linestyle='solid')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy'].T.detach().cpu().numpy(), label='og_target_energy', linestyle='dotted')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy'].detach().cpu().numpy(), label='target_energy', linestyle='solid')
+    if args.method == 'full_fourier':
+        plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy'].T.detach().cpu().numpy(), label='og_target_energy', linestyle='dotted')
     if learned_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), learned_energy.T.detach().cpu().numpy(), label='Learned Energy', linestyle='dotted')
     if current_energy is not None:
@@ -688,7 +691,8 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         plt.show()
 
     plt.figure(figsize=(8, 5))
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy'].T.detach().cpu().numpy(), label='OG Target Energy')
+    if args.method == 'full_fourier':
+        plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy'].T.detach().cpu().numpy(), label='OG Target Energy')
     plt.plot(example_t.detach().cpu().numpy(), true_energy.T.detach().cpu().numpy(), label='Ground Truth')
     if current_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), current_energy.T.detach().cpu().numpy(), label='Current Energy', linestyle='dotted')
@@ -704,17 +708,14 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
 
     #plot the ut components
     plt.figure(figsize=(8, 5))
-    # plt.plot(example_t.detach().cpu().numpy(), energy.detach().cpu().numpy(), label='Energy')
-    # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['true_energy_u_component'].expand(example_t.shape).T.detach().cpu().numpy(), label='Ground Truth ux Component', linestyle='dotted')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['true_energy_u_component'].expand(example_t.shape).detach().cpu().numpy(), label='Ground Truth ux Component', linestyle='dotted')
     plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy_ux_component'].T.detach().cpu().numpy(), label='Target ux Component', linestyle='solid')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy_ux_component'].T.detach().cpu().numpy(), label='OG Target ux Component', linestyle='dotted')
-
+    if args.method == 'full_fourier':
+        plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy_ux_component'].T.detach().cpu().numpy(), label='OG Target ux Component', linestyle='dotted')
     if learned_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), energy_components['learned_energy_u_component'].T.detach().cpu().numpy(), label='Learned Energy ux Component', linestyle='dotted')
     if current_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), energy_components['current_energy_u_component'].T.detach().cpu().numpy(), label='Current Energy ux Component', linestyle='dotted')
-    # plt.plot(example_t.detach().cpu().numpy(), current_energy.detach().cpu().numpy(), label='Returned Energy')
     plt.xlabel('Time')
     plt.ylabel('Energy')
     plt.title('Energy Evolution of ux Component')
@@ -730,9 +731,10 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     plt.figure(figsize=(8, 5))
     # plt.plot(example_t.detach().cpu().numpy(), energy.detach().cpu().numpy(), label='Energy')
     # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['true_energy_ut_component'].expand(example_t.shape).T.detach().cpu().numpy(), label='Ground Truth ut Component',linestyle='dotted')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['true_energy_ut_component'].expand(example_t.shape).detach().cpu().numpy(), label='Ground Truth ut Component',linestyle='dotted')
     plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy_ut_component'].T.detach().cpu().numpy(), label='Target ut Component', linestyle='solid')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy_ut_component'].T.detach().cpu().numpy(), label='OG Target ut Component', linestyle='dotted')
+    if args.method == 'full_fourier':
+        plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy_ut_component'].T.detach().cpu().numpy(), label='OG Target ut Component', linestyle='dotted')
 
     if learned_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), energy_components['learned_energy_ut_component'].T.detach().cpu().numpy(), label='Learned Energy ut Component', linestyle='dotted')

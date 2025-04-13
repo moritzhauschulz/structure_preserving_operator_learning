@@ -59,6 +59,7 @@ def main_loop(args, data):
         og_y = y
         og_x = x.copy()
 
+
         if args.problem == '1d_wave':
             if args.num_input_fn == 1:
                 x[0] = x[0][:,0,:].squeeze(-1)
@@ -68,6 +69,7 @@ def main_loop(args, data):
                 y = y[:,0,:].squeeze(-1)
             else:
                 y = y.view(y.shape[0], -1)
+
 
         y = y.to(args.device)
 

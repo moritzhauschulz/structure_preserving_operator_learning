@@ -5,7 +5,7 @@ SCRIPT_NAME=$(basename "$0" .sh)
 
 #wider net
 
-counter=1
+counter=3
 
 
 #num_ouputs is M+1 (number of fourier modes) (?)
@@ -15,7 +15,7 @@ counter=1
 # --load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/ex31_1/exp_n_20250317-143256/models/best_ckpt_epoch_865.pth \
 
 
-for strat in FullFourier FullFourierNorm FullFourierAvgNorm; do
+for strat in FullFourierAvgNorm; do
     python main.py --problem 1d_wave --device cpu --method full_fourier \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \
             --IC '{"c": 10, "type": "periodic_gp", "params": {"lengthscale":0.1, "variance":1.0}}' \
@@ -36,7 +36,7 @@ for strat in FullFourier FullFourierNorm FullFourierAvgNorm; do
             --lr 1e-3 \
             --use_ifft True \
             --epochs 1000 \
-            --n_branch 100 \
+            --n_branch 500 \
             --loss mse \
             --track_all_losses 0 \
             --strategy $strat \

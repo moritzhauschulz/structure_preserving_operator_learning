@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 
 def get_data(args):
     print('getting data')
-    if args.load_data and os.path.exists(args.data_dir + args.data_config) and args.method == 'full_fourier':
+    if args.load_data and os.path.exists(args.data_dir + args.data_config):
         print(f'loading data')
+        print(f'from {args.data_dir + args.data_config}')
         with open(args.data_dir + args.data_config, 'rb') as f:
             data = pickle.load(f)
     elif args.method == 'deeponet':
