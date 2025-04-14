@@ -90,7 +90,7 @@ def main_loop(args, data):
                 print(losses[f'loss_{i}'])
         else:
             for i in range(args.num_output_fn):
-                losses[f'loss_{i}'] = mse_loss(preds[:,block_n*i:block_n*(i+1)], y[:,block_n*i:block_n*(i+1)])
+                losses[f'loss_{i}'] = mse_loss(preds[:,block_n*i:block_n*(i+1)], y[:,block_n*i:block_n*(i+1)]) / args.Nt #note this division is to make it comparable to the case with fourier in space and time
                 main_loss += losses[f'loss_{i}']
         losses['mse_loss'] = main_loss
 
@@ -150,6 +150,9 @@ def main_loop(args, data):
     best_val_loss = float('inf')
     best_model_state = None
     best_model_epoch = None
+
+    if args.eval_only:
+        epochs = 1
     
     pbar = tqdm(range(1,epochs + 1))
     for i in pbar:
@@ -158,16 +161,18 @@ def main_loop(args, data):
         model.epoch = i
 
         epoch_losses = {}
-        for batch_idx, (x, y) in enumerate(train_loader):
-            x = x.to(args.device)
-            y = y.to(args.device)
 
-            loss, losses = compute_loss(args,i, model, x, y)
+        if not args.eval_only:
+            for batch_idx, (x, y) in enumerate(train_loader):
+                x = x.to(args.device)
+                y = y.to(args.device)
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
+                loss, losses = compute_loss(args,i, model, x, y)
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
 
 
         if i % args.eval_every == 0 or i ==1:
@@ -187,8 +192,8 @@ def main_loop(args, data):
                 for key, value in losses.items():
                     key = f'{key}_train'
                     if key not in epoch_losses:
-                        epoch_losses[key] = []
-                    epoch_losses[key].append(value.item())
+                        epoch_losses[key] = 0
+                    epoch_losses[key] += value.item()
 
             val_loss = 0
             for batch_idx, (x, y) in enumerate(val_loader):
@@ -201,15 +206,16 @@ def main_loop(args, data):
                 for key, value in losses.items():
                     key = f'{key}_val'
                     if key not in epoch_losses:
-                        epoch_losses[key] = []
-                    epoch_losses[key].append(value.item())
+                        epoch_losses[key] = 0
+                    epoch_losses[key] += value.item()
 
             pbar.set_description(f'epoch {i}; loss {train_loss}; val_loss {val_loss}; train_val_loss {train_val_loss}')
             val_losses.append(val_loss)
             train_losses.append(train_loss)
             with open(f'{args.save_models}/losses.csv', mode='w', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(['Epoch', 'Train Loss', 'Validation Loss'])
+                if i == 1:
+                    writer.writerow(['Epoch', 'Train Loss', 'Validation Loss'])
                 writer.writerow([i, train_loss, val_loss])
 
             if val_loss < best_val_loss:
@@ -226,7 +232,7 @@ def main_loop(args, data):
         scheduler.step()
 
 
-    if args.save_model:
+    if args.save_model and not args.eval_only:
         torch.save(model.state_dict(), args.save_models + '/final_ckpt.pth')
         if best_model_state is not None:
             torch.save(best_model_state, args.save_models + f'/best_ckpt_epoch_{best_model_epoch}.pth')

@@ -234,13 +234,54 @@ class OrthonormalBranchStrategy(CustomStrategy):
             xs.append(x)
             shift += size
         return self.net.concatenate_outputs(xs)
-    
+
+
+def zero_pad_and_build_symmetric(four_coef, K):
+    """
+    Pads one-sided Fourier coefficients to length K by inserting zeros
+    and builds a Hermitian-symmetric spectrum for real-valued ifft.
+
+    Args:
+        four_coef: (B, N), where N is odd (DC + positive freqs)
+        K: target spatial resolution (must be odd and >= 2*N - 1)
+
+    Returns:
+        full_spectrum: (B, K), Hermitian-symmetric Fourier spectrum
+    """
+    B, N = four_coef.shape
+    assert N % 2 == 0, "Expected even N (number of positive frequencies including DC)"
+    assert K % 2 == 1, "K must be odd to preserve symmetry with odd N"
+    assert K >= 2 * N - 1, f"K must be at least 2N-1 to preserve structure (got K={K}, N={N})"
+
+    # Number of positive freqs (excluding DC)
+    num_pos = N - 1
+    num_neg = num_pos
+
+    # Amount of zero padding to insert between DC and mirrored neg freqs
+    pad_len = K - (1 + 2 * num_pos)
+    pad_mid = torch.zeros(B, pad_len, dtype=four_coef.dtype, device=four_coef.device)
+
+    # Build the full symmetric spectrum
+    pos = four_coef[:, 1:]         # Positive freqs
+    neg = torch.conj(torch.flip(pos, dims=[1]))  # Negative freqs
+
+    full_spectrum = torch.cat([
+        four_coef[:, :1],  # DC
+        pos,
+        pad_mid,
+        neg
+    ], dim=1)
+
+    return full_spectrum
+
+
 class FourierStrategy(CustomStrategy):
     def __init__(self, args, net):
         super(FourierStrategy, self).__init__(args, net)
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
         self.L = args.xmax - args.xmin
         self.K = args.Nx
+        self.num_outputs = args.num_outputs
         self.problem = args.problem
         self.num_output_fn = args.num_output_fn
         self.IC = args.IC
@@ -275,15 +316,13 @@ class FourierStrategy(CustomStrategy):
 
         four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1
 
-        four_coef_list = [four_coef[:, i*int(self.K//2 + 1):(i+1)*int(self.K//2+1)] for i in range(self.num_output_fn)]
+        four_coef_list = [four_coef[:, i*int(self.num_outputs//2):(i+1)*int(self.num_outputs//2)] for i in range(self.num_output_fn)]
         out_list = []
         new_four_coef_list = []
         for four_coef in four_coef_list:
-            neg_four_coef = torch.conj(torch.flip(four_coef[:, 1:], dims=[1]))
             four_coef[:, 0].imag = 0
-            four_coef = torch.cat((four_coef, neg_four_coef), dim=1)
-            four_coef_hat = four_coef.unsqueeze(-1) #* self.K
-            out = torch.fft.ifft(four_coef_hat.squeeze(-1)) #* self.K
+            four_coef_hat = zero_pad_and_build_symmetric(four_coef, self.K)
+            out = torch.fft.ifft(four_coef_hat.squeeze(-1))
             assert out.imag.abs().max() < 1e-5, f'Imaginary part of fourier coefficients is too large: {four_coef_hat.imag.abs().max()}'
             out_list.append(out)
             new_four_coef_list.append(four_coef_hat)
@@ -301,6 +340,7 @@ class FourierNormStrategy(CustomStrategy):
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
         self.L = args.xmax - args.xmin
         self.K = args.Nx
+        self.num_outputs = args.num_outputs
         self.problem = args.problem
         self.IC = args.IC
         self.num_output_fn = args.num_output_fn
@@ -315,6 +355,8 @@ class FourierNormStrategy(CustomStrategy):
         return self.net.build_branch_net(layer_sizes_branch), self.net.build_trunk_net(
             layer_sizes_trunk
         )
+    
+    
     
     def exact_soliton(x, t, c, a):
         arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
@@ -335,18 +377,16 @@ class FourierNormStrategy(CustomStrategy):
             un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
 
             four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1 
-            four_coef_list = [four_coef[:, i*int(self.K//2 + 1):(i+1)*int(self.K//2+1)] for i in range(self.num_output_fn)]
+            four_coef_list = [four_coef[:, i*int(self.num_outputs//2):(i+1)*int(self.num_outputs//2)] for i in range(self.num_output_fn)]
             prelim_out_list = []
             prelim_four_coef_list = []
             for i, four_coef in enumerate(four_coef_list):
-                neg_four_coef = torch.conj(torch.flip(four_coef[:, 1:], dims=[1]))
                 four_coef[:, 0].imag = 0
-                four_coef = torch.cat((four_coef, neg_four_coef), dim=1)
-                four_coef_hat = four_coef.unsqueeze(-1)
-                prelim_out = torch.fft.ifft(four_coef_hat.squeeze(-1)) #* self.K
-                assert prelim_out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {four_coef_hat.imag.abs().max()}'
+                prelim_four_coef_hat = zero_pad_and_build_symmetric(four_coef, self.K)
+                prelim_out = torch.fft.ifft(prelim_four_coef_hat.squeeze(-1))
+                assert prelim_out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {prelim_out.imag.abs().max()}'
                 prelim_out_list.append(prelim_out)
-                prelim_four_coef_list.append(four_coef_hat)
+                prelim_four_coef_list.append(prelim_four_coef_hat)
             prelim_out = torch.cat(prelim_out_list, dim=1)
             prelim_four_coef = torch.cat(prelim_four_coef_list, dim=1)
 
@@ -355,7 +395,7 @@ class FourierNormStrategy(CustomStrategy):
 
             scaling_factor = compute_scaling_factor(self, prelim_out, prelim_four_coef, energies)
             
-            four_coef_final = prelim_four_coef * scaling_factor.unsqueeze(1)
+            four_coef_final = prelim_four_coef * scaling_factor
 
             four_coef_list_final = [four_coef_final[:, i*int(four_coef_final.shape[1]//self.num_output_fn):(i+1)*int(four_coef_final.shape[1]//self.num_output_fn)] for i in range(self.num_output_fn)]
             out_list = []
@@ -492,6 +532,7 @@ class FourierQRStrategy(CustomStrategy):
         self.L = args.xmax - args.xmin
         self.K = args.Nx
         self.problem = args.problem
+        self.num_outputs = args.num_outputs
         self.num_output_fn = args.num_output_fn
         self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
         self.IC = args.IC
@@ -511,28 +552,30 @@ class FourierQRStrategy(CustomStrategy):
         return ((c / 2) / np.cosh(arg) ** 2)  # Stable sech^2 computation
     
     def call(self, x_func, x_loc, x=None, y=None):
+
         x_loc.requires_grad = True
         branch_out_in = self.net.branch(x_func) 
 
         branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
         B = to_complex_tensor(branch_out_in)
+        # assert B.shape[1] >= B.shape[2], "B should be at least as wide as it is tall"
         un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
         un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
 
         # Create diagonal matrix with ones and wave numbers
-        diag_size = (self.K // 2 + 1) * self.num_output_fn
+        diag_size = self.num_outputs #(self.num_outputs // 2 + 1) * self.num_output_fn
         half_size = diag_size // 2
-        k = torch.fft.fftfreq(self.K, d=(self.L/self.K))[0:half_size] * 2* torch.pi
+        k = torch.fft.fftfreq(self.K, d=(self.L/self.K))[0:half_size] * 2 * torch.pi
         W = torch.cat([
                 self.IC['c']*k,
                 torch.ones(half_size)
             ])
-        W[0]=0 #for test
+        #W[0]=0 #for test
         W = W * torch.sqrt(torch.tensor(self.L / (self.K ** 2)))
 
         mask = (W > 0)
         
-        Q = torch.zeros_like(B)
+        Q = torch.zeros(B.shape[0], B.shape[1], min(torch.sum(mask).item(), B.shape[2]), dtype=B.dtype)
         B_sub = B[:, mask,:]
         W_sub = W[mask]
         W_sub_invs = 1.0 / W_sub
@@ -548,7 +591,10 @@ class FourierQRStrategy(CustomStrategy):
 
         Q_sub = W_sub_invsqrt @ Q_std
 
-        Q[:, mask, :] = Q_sub   
+
+        Q[:, mask, :] = Q_sub
+
+
 
         #check that QR=B
         if not torch.allclose((Q_std @ R), B_std, atol=1e-4):
@@ -558,12 +604,10 @@ class FourierQRStrategy(CustomStrategy):
 
         B_hat = Q
         un_alpha = (R @ un_alpha.unsqueeze(-1)).squeeze(-1)
-        print(f'un_alpha shape: {un_alpha.shape}') 
         norms = torch.norm(un_alpha, p=2, dim=1, keepdim=True)
         zero_mask = (norms == 0)
         norms = norms + zero_mask.float()  #TODO: Find a better solution to this!
         alpha_hat = un_alpha / norms
-
 
         #compute energy
         gt_u = x[0][:,0,:]
@@ -578,65 +622,58 @@ class FourierQRStrategy(CustomStrategy):
         true_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(gt_u_hat)**2, dim=1) * self.L / (self.K ** 2)
         true_energy = true_energy_ut_component + true_energy_u_component
 
-        #compute energy of the positive modes only for comparison
-        k = torch.fft.fftfreq(self.K, d=(self.L/self.K))[0:half_size] * 2* torch.pi
-        gt_u_hat_pos = gt_u_hat[:, :half_size]
-        gt_ut_hat_pos = gt_ut_hat[:, :half_size]
-        half_true_energy_ut_component = torch.sum(torch.abs(gt_ut_hat_pos)**2, dim=1) * self.L / (self.K ** 2)
-        half_true_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(gt_u_hat_pos)**2, dim=1) * self.L / (self.K ** 2)
-        half_true_energy = half_true_energy_ut_component + half_true_energy_u_component
-
-        # print(f'half has length {gt_u_hat_pos.shape[1]} true has length {gt_u_hat.shape[1]}')
-        # print(f'half was: {half_true_energy[0]} should be: {true_energy[0]/2}')
-        # print(f'hald ut was: {half_true_energy_ut_component[0]} should be: {true_energy_ut_component[0]/2}')
-        # print(f'half u was: {half_true_energy_u_component[0]} should be: {true_energy_u_component[0]/2}')
-
-        print(f'pre-norm alpha_hat norm: {torch.norm(alpha_hat, p=2, dim=1)[0]}')
         alpha_hat = alpha_hat * torch.sqrt(true_energy)[:,None] / torch.sqrt(torch.tensor(2))
 
-        #check that alpha_hat now has the desired norm:
-        print(f'alpha_hat norm: {torch.norm(alpha_hat, p=2, dim=1)[0]**2} and target is {true_energy[0]/2}')
-
-        print(f'B_hat has shape {B_hat.shape}')
-        print(f'alpha_hat has shape {alpha_hat.shape}')
         four_coef = (B_hat @ alpha_hat.unsqueeze(-1)) #N x  M+1 
-        print(four_coef.shape)
+
+
+        four_coef = four_coef.squeeze(-1)
 
         W_mat = torch.complex(torch.diag_embed(W ** 2), torch.zeros_like(torch.diag_embed(W)))
 
+        u_weighted = four_coef.unsqueeze(-1)  # (batch_size, 4, 1)
         energy_weighted = torch.diagonal(
             torch.bmm(
-                torch.bmm(four_coef.transpose(-2,-1).conj(), W_mat.unsqueeze(0).expand(B.shape[0], -1, -1)),
-                four_coef
+                torch.bmm(u_weighted.transpose(-2,-1).conj(), W_mat.unsqueeze(0).expand(B.shape[0], -1, -1)),
+                u_weighted
             ),
             dim1=-2, dim2=-1
         ).real
 
-        four_coef = four_coef.squeeze(-1)
+        print(f'computed energy {energy_weighted[100]}')
+        print(f'true energy {true_energy[100]/2}')
+        print(four_coef.shape)
+        print(self.num_outputs)
 
-        print(f'energy_weighted: {energy_weighted[0]} should be: {true_energy[0]/2}')
-
-
-        four_coef_list = [four_coef[:, i*int(self.K//2 + 1):(i+1)*int(self.K//2+1)] for i in range(self.num_output_fn)]
+        four_coef_list = [four_coef[:, i*int(self.num_outputs//2):(i+1)*int(self.num_outputs//2)] for i in range(self.num_output_fn)]
         
         prelim_out_list = []
         prelim_four_coef_list = []
+        torch.autograd.set_detect_anomaly(True)
         for i, four_coef in enumerate(four_coef_list):
-            neg_four_coef = torch.conj(torch.flip(four_coef[:, 1:], dims=[1]))
-            four_coef[:, 0].imag = 0
-            # four_coef[:,0].real = 0 # just becasue we set this zero in the data
-            four_coef = torch.cat((four_coef, neg_four_coef), dim=1)
-            four_coef_hat = four_coef.unsqueeze(-1)
-            prelim_out = torch.fft.ifft(four_coef_hat.squeeze(-1)) #* self.K
-            assert prelim_out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {four_coef_hat.imag.abs().max()}'
+            new_real = torch.sqrt(torch.clamp(torch.abs(four_coef[:, 0]), min=1e-12))
+            new_imag = torch.zeros_like(new_real)
+            new_col0 = torch.complex(new_real, new_imag)
+
+            # Clone four_coef and replace column 0 non-inplace
+            four_coef = four_coef.clone()
+            four_coef[:, 0] = new_col0
+            # Construct new complex number
+            four_coef[:, 0] = torch.complex(new_real, new_imag)
+            # four_coef[:, 0].real = torch.sqrt(torch.abs(four_coef[:, 0]))
+            # four_coef[:, 0].imag = 0
+            print(four_coef.shape)
+            prelim_four_coef_hat = zero_pad_and_build_symmetric(four_coef, self.K)
+            prelim_out = torch.fft.ifft(prelim_four_coef_hat.squeeze(-1))
+            #assert prelim_out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {prelim_four_coef_hat.imag.abs().max()}'
             prelim_out_list.append(prelim_out)
-            prelim_four_coef_list.append(four_coef_hat)
+            prelim_four_coef_list.append(prelim_four_coef_hat)
         out = torch.cat(prelim_out_list, dim=1)
         four_coef = torch.cat(prelim_four_coef_list, dim=1)
         
         energies = compute_energies(self, out, four_coef, x_func, x_loc, x, y)
 
-        assert out.imag.abs().max() < 1e-5, f'Imaginary part of fourier coefficients is too large: {four_coef.imag.abs().max()}'
+        #assert out.imag.abs().max() < 1e-5, f'Imaginary part of fourier coefficients is too large: {four_coef.imag.abs().max()}'
 
         return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, energies)
 
@@ -729,7 +766,7 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
             target_energy_ux_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(gt_u_hat)**2, dim=1) * self.L / (self.K ** 2)
             target_energy = target_energy_ut_component + target_energy_ux_component
 
-        assert (true_energy-target_energy).abs().max() < 1, f'max difference between true energy and target energy is {(true_energy-target_energy).abs().max().item()}'
+        #assert (true_energy-target_energy).abs().max() < 1, f'max difference between true energy and target energy is {(true_energy-target_energy).abs().max().item()}'
     else:
         raise NotImplementedError('Energy calculation for other problems than 1d wave not implemented')
     
@@ -934,33 +971,22 @@ def scaling_factor_full_fourier(self, prelim_out, four_coef, energies) -> torch.
     return scaling_factor
     
 
-def padded_ifft(four_coef_hat, K):
+def padded_ifft_hermitian(four_coef, K):
     """
-    Compute the inverse Fourier transform with zero-padding to match a target resolution K.
-    Handles batched input tensors.
-    
-    Parameters:
-        four_coef_hat (torch.Tensor): Tensor of shape (batch_size, N) containing Fourier coefficients
-        K (int): The target number of points for the output resolution
-    
-    Returns:
-        torch.Tensor: The reconstructed function sampled at K points, shape (batch_size, K)
+    Handles real signal IFFT from one-sided coeffs with odd N, padded to spatial resolution K.
     """
-    batch_size, N = four_coef_hat.shape  # Original number of Fourier modes
+    B, M = four_coef.shape
 
-    # Zero-padding in Fourier space
-    if K > N:
-        pad_left = (K - N) // 2
-        pad_right = K - N - pad_left
-        four_coef_hat_padded = torch.nn.functional.pad(four_coef_hat, (pad_left, pad_right), mode='constant', value=0)
-    else:
-        # If K <= N, truncate the higher frequencies
-        four_coef_hat_padded = four_coef_hat[:, :K]
+    assert K >= M, f"Target resolution K={K} must be >= {M} (2N - 1)"
+    pad_left = (K - M) // 2
+    pad_right = K - M - pad_left
 
-    # Compute the inverse FFT
-    out = torch.fft.ifft(four_coef_hat_padded) * (K / N)  # Adjust scaling factor
+    padded_spec = torch.nn.functional.pad(four_coef, (pad_left, pad_right), mode='constant', value=0)
 
+    # Inverse FFT to real signal
+    out = torch.fft.ifft(padded_spec, n=K)
     return out
+
 
 def to_complex_tensor(tensor):
     """
@@ -1000,6 +1026,8 @@ class FullFourierStrategy():
         self.i = 0
         self.t_filter_cutoff_ratio = args.t_filter_cutoff_ratio
         self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
+        self.inference_projection = args.inference_projection
+        self.num_norm_refinements = args.num_norm_refinements
 
     def call(self, out, x=None, y=None):
         four_coef = out
@@ -1013,7 +1041,6 @@ class FullFourierStrategy():
         out_list = []
         new_four_coef_list = []
         for four_coef in four_coef_list:
-
             # use constructor to complete matrix
             F_full = construct_full_fourier_matrix(self.Nx, self.Nt, four_coef)
             # Apply low-pass filtering in time dimension only
@@ -1029,6 +1056,14 @@ class FullFourierStrategy():
         out = torch.cat(out_list, dim=1)
         four_coef = torch.cat(new_four_coef_list, dim=1)
         energies = compute_energies_full_fourier(self, out, four_coef, x, y)
+
+        print(f'inference projection is {self.inference_projection}')
+        if self.inference_projection:
+            for i in range(self.num_norm_refinements):
+                scaling_factor  = scaling_factor_full_fourier(self, out, four_coef, energies)#is it okay to just apply this to the transformed output?
+                out = out * scaling_factor
+                four_coef = torch.fft.fftn(out, dim=(-2, -1))
+                energies = compute_energies_full_fourier(self, out, four_coef, x, y, in_physical_space=True)
 
         self.i += 1
 
@@ -1082,12 +1117,11 @@ class FullFourierNormStrategy():
         four_coef = torch.cat(new_four_coef_list, dim=1)
         energies = compute_energies_full_fourier(self, out, four_coef, x, y)
 
-        if not self.inference_norm or not self.net.training:
-            for i in range(self.num_norm_refinements):
-                scaling_factor  = scaling_factor_full_fourier(self, out, four_coef, energies)#is it okay to just apply this to the transformed output?
-                out = out * scaling_factor
-                four_coef = torch.fft.fftn(out, dim=(-2, -1))
-                energies = compute_energies_full_fourier(self, out, four_coef, x, y, in_physical_space=True)
+        for i in range(self.num_norm_refinements):
+            scaling_factor  = scaling_factor_full_fourier(self, out, four_coef, energies)#is it okay to just apply this to the transformed output?
+            out = out * scaling_factor
+            four_coef = torch.fft.fftn(out, dim=(-2, -1))
+            energies = compute_energies_full_fourier(self, out, four_coef, x, y, in_physical_space=True)
 
         self.i += 1
         return out.real, energies

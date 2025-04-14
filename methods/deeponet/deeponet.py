@@ -150,26 +150,33 @@ def main_loop(args, data):
     best_val_loss = float('inf')
     best_model_state = None
     best_model_epoch = None
+
+    if args.eval_only:
+        epochs = 1
     
     pbar = tqdm(range(1,epochs + 1))
+
+
     for i in pbar:
         train_loss = 0
 
         model.epoch = i
 
         epoch_losses = {}
-        for batch_idx, (x, y) in enumerate(train_loader):
-            x[0] = x[0].to(args.device)
-            x[1] = x[1].to(args.device)
+
+        if not args.eval_only:
+            for batch_idx, (x, y) in enumerate(train_loader):
+                x[0] = x[0].to(args.device)
+                x[1] = x[1].to(args.device)
 
 
 
-            loss, losses = compute_loss(args,i, model, x, y)
+                loss, losses = compute_loss(args,i, model, x, y)
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
 
 
         if i % args.eval_every == 0 or i ==1:
@@ -186,8 +193,8 @@ def main_loop(args, data):
                 for key, value in losses.items():
                     key = f'{key}_train'
                     if key not in epoch_losses:
-                        epoch_losses[key] = []
-                    epoch_losses[key].append(value.item())
+                        epoch_losses[key] = 0
+                    epoch_losses[key] += value.item()
 
 
             val_loss = 0
@@ -202,15 +209,16 @@ def main_loop(args, data):
                 for key, value in losses.items():
                     key = f'{key}_val'
                     if key not in epoch_losses:
-                        epoch_losses[key] = []
-                    epoch_losses[key].append(value.item())
+                        epoch_losses[key] = 0
+                    epoch_losses[key] += value.item()
 
             pbar.set_description(f'epoch {i}; loss {train_loss}; val_loss {val_loss}; train_val_loss {train_val_loss}')
             val_losses.append(val_loss)
             train_losses.append(train_loss)
             with open(f'{args.save_models}/losses.csv', mode='a', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(['Epoch', 'Train Loss', 'Validation Loss'])
+                if i == 1:
+                    writer.writerow(['Epoch', 'Train Loss', 'Validation Loss'])
                 writer.writerow([i, train_val_loss, val_loss])
 
             if val_loss < best_val_loss:
@@ -228,7 +236,7 @@ def main_loop(args, data):
 
         scheduler.step()
 
-    if args.save_model:
+    if args.save_model and not args.eval_only:
         torch.save(model.state_dict(), args.save_models + '/final_ckpt.pth')
         if best_model_state is not None:
             torch.save(best_model_state, args.save_models + f'/best_ckpt_epoch_{best_model_epoch}.pth')
