@@ -29,18 +29,17 @@ class CustomStrategy(DeepONetStrategy):
     
 class VanillaStrategy(CustomStrategy):
     def call(self, x_func, x_loc,x,y):
+        x_loc.requires_grad = True
         branch_out = self.net.branch(x_func)
-        x_loc = self.net.activation_trunk(self.net.trunk(x_loc))
-        shift = 0
-        size = x_loc.shape[1]
-        xs = []
-        for i in range(self.net.num_outputs):
-            branch_out_ = branch_out[:, shift : shift + size]
-            x = self.net.merge_branch_trunk(branch_out_, x_loc, i)
-            xs.append(x)
-            shift += size
-        output = self.net.concatenate_outputs(xs)
-        return output, (branch_out, x_loc)
+        alpha = self.net.activation_trunk(self.net.trunk(x_loc))
+        B = branch_out.view(-1, self.net.num_outputs, branch_out.shape[1] // self.net.num_outputs)
+        out = (B @ alpha.unsqueeze(-1))
+        true_energy = ((x_func[:,2] * x_func[:,0]) ** 2 + x_func[:,1] ** 2) #* 0.5
+        learned_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + out[:,1] ** 2
+        gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
+        current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+        energy_components = None
+        return (out.squeeze(-1), [true_energy, current_energy, learned_energy, energy_components])
     
 
 class OrthonormalBranchNormalTrunkStrategy(CustomStrategy):
@@ -81,6 +80,7 @@ class OrthonormalBranchNormalTrunkStrategy(CustomStrategy):
     
 class QRStrategy(CustomStrategy):
     def call(self, x_func, x_loc, x, y):
+        x_loc.requires_grad = True
         # print(x_func.shape)
         torch.autograd.set_detect_anomaly(True)
         branch_out_in = self.net.branch(x_func)
@@ -118,16 +118,17 @@ class QRStrategy(CustomStrategy):
             raise AssertionError("Trunk output is not normalized")
         if (zero_mask.squeeze(1)).sum() > B_hat.shape[0] * 0.001 and self.net.epoch > 10:
             raise AssertionError(f"Had to exclude more than 0.1% ({(zero_mask.squeeze(1)).sum()/B_hat.shape[0]}) of the batch at the normalizations stage")
-        true_nrg = ((x_func[:,2] * x_func[:,0]) ** 2 + x_func[:,1] ** 2) #* 0.5
-        # print(x_func.shape)
-        # print(x_loc[-1])
-        nrg = self.net.nrg_net(torch.concat((x_func, x_loc), dim=1))
-        # print(f'average squared nrg: {(nrg ** 2).mean()} true_nrg: {true_nrg.mean()}')
-        # print(f'predicted nrg: {nrg}, true nrg: {true_nrg}')
-        alpha_hat = alpha_hat * torch.sqrt(true_nrg)[:,None] #nrg[:,None]
+        true_energy = ((x_func[:,2] * x_func[:,0]) ** 2 + x_func[:,1] ** 2) #* 0.5
+        # nrg = self.net.nrg_net(torch.concat((x_func, x_loc), dim=1))
+        alpha_hat = alpha_hat * torch.sqrt(true_energy)[:,None] #nrg[:,None]
         out = B_hat @ alpha_hat.unsqueeze(-1)
         out = out.reshape(-1, self.net.num_outputs)
-        return out, (B_hat.reshape(-1, B_hat.shape[2] * self.net.num_outputs), alpha_hat)
+        gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
+        current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+        learned_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + out[:,1] ** 2
+        energy_components = None
+        #return out, (B_hat.reshape(-1, B_hat.shape[2] * self.net.num_outputs), alpha_hat)
+        return (out.squeeze(-1), [true_energy, current_energy, learned_energy, energy_components])
 
         # #combine branch and trunk
         # shift = 0
@@ -167,6 +168,19 @@ class NormalTrunkStrategy(CustomStrategy):
         return self.net.concatenate_outputs(xs)
 
 class NormalStrategy(CustomStrategy):
+    def __init__(self, args, net):
+        super(NormalStrategy, self).__init__(args, net)
+        assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
+        self.L = args.xmax - args.xmin
+        self.K = args.Nx
+        self.num_outputs = args.num_outputs
+        self.problem = args.problem
+        self.num_output_fn = args.num_output_fn
+        self.IC = args.IC
+        self.i = 0
+        self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
+        self.use_implicit_nrg = args.use_implicit_nrg
+
     def call(self, x_func, x_loc, x, y):
         torch.autograd.set_detect_anomaly(True)
         x_loc.requires_grad = True
@@ -175,39 +189,50 @@ class NormalStrategy(CustomStrategy):
         B = branch_out.view(-1, self.net.num_outputs, branch_out.shape[1] // self.net.num_outputs)
         out = (B @ alpha.unsqueeze(-1))
         aux_out = out.clone() 
-        true_nrg = ((x_func[:,2] * x_func[:,0]) ** 2 + x_func[:,1] ** 2)[:,None]
-        if not self.args.use_implicit_nrg:
-            norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + out[:,1] ** 2
-            norms = norms
-            zero_mask = (norms == 0)
-            norms = norms + zero_mask.float()
-            # print(out.shape)
-            # normalized_ch0 = out[:,0,:] / torch.sqrt(norms) * torch.sqrt(true_nrg)
-            # out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
-            out = out / torch.sqrt(norms).unsqueeze(1) * torch.sqrt(true_nrg).unsqueeze(1)
+        true_energy = ((x_func[:,2] * x_func[:,0]) ** 2 + x_func[:,1] ** 2)[:,None]
+        learned_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + out[:,1] ** 2
+        gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
+
+        current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+        if self.use_implicit_nrg:
+            norming_nrg = current_energy
+            zero_mask = (norming_nrg == 0)
+            norming_nrg = norming_nrg + zero_mask.float() 
+            normalized_ch0 = out[:,0,:] / torch.sqrt(norming_nrg) * torch.sqrt(true_energy)
+            out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
         else:
-            for i in range(self.args.num_norm_refinements):
-                gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
-                if self.args.detach:
-                    detached_gradients = gradients.detach()
-                    norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + detached_gradients ** 2
-                    undetached_norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
-                    zero_mask = (norms == 0)
-                    norms = norms + zero_mask.float()
-                    undetached_norms = undetached_norms + zero_mask.float()
-                    normalized_ch0 = out[:,0,:] / torch.sqrt(norms) * torch.sqrt(true_nrg)
-                    out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
-                    undetached_normalized_ch0 = out[:,0,:] / torch.sqrt(undetached_norms) * torch.sqrt(true_nrg)
-                    aux_out = torch.cat([undetached_normalized_ch0.unsqueeze(1), undetached_normalized_ch0[:,1:,:]], dim=1)
-                else:
-                    norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
-                    zero_mask = (norms == 0)
-                    norms = norms + zero_mask.float()
-                    normalized_ch0 = out[:,0,:] / torch.sqrt(norms) * torch.sqrt(true_nrg)
-                    out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
-                    aux_out = None
-                # print(gradients.shape)
-        return out.squeeze(-1), aux_out
+            norming_nrg = learned_energy
+            zero_mask = (norming_nrg == 0)
+            norming_nrg = norming_nrg + zero_mask.float() 
+            out = out / torch.sqrt(norming_nrg).unsqueeze(1) * torch.sqrt(true_energy).unsqueeze(1)
+        learned_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + out[:,1] ** 2
+        gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
+        current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+        energy_components = None
+
+        # else:
+        #     for i in range(self.args.num_norm_refinements):
+        #         gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
+        #         if self.args.detach:
+        #             detached_gradients = gradients.detach()
+        #             norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + detached_gradients ** 2
+        #             undetached_norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+        #             zero_mask = (norms == 0)
+        #             norms = norms + zero_mask.float()
+        #             undetached_norms = undetached_norms + zero_mask.float()
+        #             normalized_ch0 = out[:,0,:] / torch.sqrt(norms) * torch.sqrt(true_nrg)
+        #             out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
+        #             undetached_normalized_ch0 = out[:,0,:] / torch.sqrt(undetached_norms) * torch.sqrt(true_nrg)
+        #             aux_out = torch.cat([undetached_normalized_ch0.unsqueeze(1), undetached_normalized_ch0[:,1:,:]], dim=1)
+        #         else:
+        #             norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+        #             zero_mask = (norms == 0)
+        #             norms = norms + zero_mask.float()
+        #             normalized_ch0 = out[:,0,:] / torch.sqrt(norms) * torch.sqrt(true_nrg)
+        #             out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
+        #             aux_out = None
+        #         # print(gradients.shape)
+        return (out.squeeze(-1), [true_energy, current_energy, learned_energy, energy_components])
     
 class OrthonormalBranchStrategy(CustomStrategy):
     def call(self, x_func, x_loc):
@@ -287,6 +312,7 @@ class FourierStrategy(CustomStrategy):
         self.IC = args.IC
         self.i = 0
         self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
+        self.use_implicit_nrg = args.use_implicit_nrg
 
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
@@ -332,7 +358,7 @@ class FourierStrategy(CustomStrategy):
 
         self.i += 1
 
-        return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, energies)
+        return out.real, list(energies)
     
 class FourierNormStrategy(CustomStrategy):
     def __init__(self, args, net):
@@ -346,6 +372,8 @@ class FourierNormStrategy(CustomStrategy):
         self.num_output_fn = args.num_output_fn
         self.i = 0
         self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
+        self.use_implicit_nrg = args.use_implicit_nrg
+
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
         if layer_sizes_branch[-1] % self.net.num_outputs != 0:
@@ -413,7 +441,7 @@ class FourierNormStrategy(CustomStrategy):
 
             self.i += 1
 
-            return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, energies)
+            return out.real, list(energies)
         
         # elif self.problem == '1d_KdV_Soliton':
         #     branch_out_in = self.net.branch(x_func) 
@@ -536,6 +564,7 @@ class FourierQRStrategy(CustomStrategy):
         self.num_output_fn = args.num_output_fn
         self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
         self.IC = args.IC
+        self.use_implicit_nrg = args.use_implicit_nrg
 
     def build(self, layer_sizes_branch, layer_sizes_trunk):
         if layer_sizes_branch[-1] % self.net.num_outputs != 0:
@@ -629,21 +658,21 @@ class FourierQRStrategy(CustomStrategy):
 
         four_coef = four_coef.squeeze(-1)
 
-        W_mat = torch.complex(torch.diag_embed(W ** 2), torch.zeros_like(torch.diag_embed(W)))
+        # W_mat = torch.complex(torch.diag_embed(W ** 2), torch.zeros_like(torch.diag_embed(W)))
 
-        u_weighted = four_coef.unsqueeze(-1)  # (batch_size, 4, 1)
-        energy_weighted = torch.diagonal(
-            torch.bmm(
-                torch.bmm(u_weighted.transpose(-2,-1).conj(), W_mat.unsqueeze(0).expand(B.shape[0], -1, -1)),
-                u_weighted
-            ),
-            dim1=-2, dim2=-1
-        ).real
+        # u_weighted = four_coef.unsqueeze(-1)  # (batch_size, 4, 1)
+        # energy_weighted = torch.diagonal(
+        #     torch.bmm(
+        #         torch.bmm(u_weighted.transpose(-2,-1).conj(), W_mat.unsqueeze(0).expand(B.shape[0], -1, -1)),
+        #         u_weighted
+        #     ),
+        #     dim1=-2, dim2=-1
+        # ).real
 
-        print(f'computed energy {energy_weighted[100]}')
-        print(f'true energy {true_energy[100]/2}')
-        print(four_coef.shape)
-        print(self.num_outputs)
+        # print(f'computed energy {energy_weighted[50]}')
+        # print(f'true energy {true_energy[50]/2}')
+        # print(four_coef.shape)
+        # print(self.num_outputs)
 
         four_coef_list = [four_coef[:, i*int(self.num_outputs//2):(i+1)*int(self.num_outputs//2)] for i in range(self.num_output_fn)]
         
@@ -662,7 +691,7 @@ class FourierQRStrategy(CustomStrategy):
             four_coef[:, 0] = torch.complex(new_real, new_imag)
             # four_coef[:, 0].real = torch.sqrt(torch.abs(four_coef[:, 0]))
             # four_coef[:, 0].imag = 0
-            print(four_coef.shape)
+            # print(four_coef.shape)
             prelim_four_coef_hat = zero_pad_and_build_symmetric(four_coef, self.K)
             prelim_out = torch.fft.ifft(prelim_four_coef_hat.squeeze(-1))
             #assert prelim_out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {prelim_four_coef_hat.imag.abs().max()}'
@@ -675,7 +704,7 @@ class FourierQRStrategy(CustomStrategy):
 
         #assert out.imag.abs().max() < 1e-5, f'Imaginary part of fourier coefficients is too large: {four_coef.imag.abs().max()}'
 
-        return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, energies)
+        return out.real, list(energies)
 
 def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
     if self.problem == '1d_KdV_Soliton':
@@ -925,9 +954,9 @@ def compute_scaling_factor(self, prelim_out, four_coef, energies) -> torch.Tenso
     """
     true_energy, current_energy, learned_energy, energy_components = energies
 
-    if self.num_output_fn == 1:
+    if self.use_implicit_nrg:
         norming_energy = current_energy
-    elif self.num_output_fn == 2:
+    else:
         norming_energy = learned_energy
 
     mask = (norming_energy == 0)
@@ -1057,7 +1086,7 @@ class FullFourierStrategy():
         four_coef = torch.cat(new_four_coef_list, dim=1)
         energies = compute_energies_full_fourier(self, out, four_coef, x, y)
 
-        print(f'inference projection is {self.inference_projection}')
+        # print(f'inference projection is {self.inference_projection}')
         if self.inference_projection:
             for i in range(self.num_norm_refinements):
                 scaling_factor  = scaling_factor_full_fourier(self, out, four_coef, energies)#is it okay to just apply this to the transformed output?
@@ -1067,7 +1096,7 @@ class FullFourierStrategy():
 
         self.i += 1
 
-        return out.real, (energies)
+        return out.real, list(energies)
 
 
 class FullFourierNormStrategy():
@@ -1124,7 +1153,7 @@ class FullFourierNormStrategy():
             energies = compute_energies_full_fourier(self, out, four_coef, x, y, in_physical_space=True)
 
         self.i += 1
-        return out.real, energies
+        return out.real, list(energies)
 
 class FullFourierAvgNormStrategy():
     def __init__(self, args, net):
@@ -1193,7 +1222,7 @@ class FullFourierAvgNormStrategy():
         # four_coef = torch.cat(new_four_coef_list, dim=1) 
         # energies = compute_energies_full_fourier(self, out, updated_four_coef, x, y)
         self.i += 1
-        return out.real, energies
+        return out.real, list(energies)
 
 def construct_full_fourier_matrix(Nx, Nt, F_half):
     """

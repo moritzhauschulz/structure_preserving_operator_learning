@@ -124,12 +124,12 @@ def get_args():
     if args.problem == 'harmonic_oscillator':
         if temp_args.IC is None:
             args.IC = {'q0': [-1,1], 'p0': [-1,1], 'omega': [1,1]}
-        args.data_config = f'_q0_{args.IC["q0"]}_p0_{args.IC["p0"]}_omega_{args.IC["omega"]}_tmin_{args.tmin}_tmax_{args.tmax}_nbranch_{args.n_branch}_method_{args.method}.pkl'
+        args.data_config = f'_q0_{args.IC["q0"]}_p0_{args.IC["p0"]}_omega_{args.IC["omega"]}_tmin_{args.tmin}_tmax_{args.tmax}_nbranch_{args.n_branch}.pkl'
 
     if args.problem == '1d_KdV_Soliton':
         if temp_args.IC is None:
             args.IC = {'c': [2.5,2.5], 'a': [-0,0]} #make this harder
-        args.data_config = f'_c_{args.IC["c"]}_a_{args.IC["a"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_nbranch_{args.n_branch}_method_{args.method}.pkl'
+        args.data_config = f'_c_{args.IC["c"]}_a_{args.IC["a"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_nbranch_{args.n_branch}.pkl'
 
     if args.problem == '1d_wave': #and args.method == 'full_fourier':
         time_period = (args.xmax - args.xmin)/args.IC['c']
@@ -139,7 +139,7 @@ def get_args():
     if args.problem == '1d_wave':
         if temp_args.IC is None:
             args.IC = {'c': 5, 'type': 'periodic_gp', 'params': {'lengthscale':0.5, 'variance':1.0}} #make this harder
-        args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_nbranch_{args.n_branch}_data_dt_{args.data_dt}_method_{args.method}.pkl'
+        args.data_config = f'_c_{args.IC["c"]}_tmin_{args.tmin}_tmax_{args.tmax}_tres_{args.t_res}_xmin_{args.xmin}_xmax_{args.xmax}_xres_{args.x_res}_nbranch_{args.n_branch}_data_dt_{args.data_dt}.pkl'
 
 
     if args.loss_weights is None:
@@ -148,7 +148,7 @@ def get_args():
     if args.method == 'deeponet':
         args.multi_output_strategy = args.strategy
 
-    if args.method == 'deeponet':
+    if args.method == 'deeponet' and 'Fourier' in args.strategy:
         if int((args.Nx + 1)/2 * args.x_filter_cutoff_ratio) % 2 != 0:
             args.num_outputs = (int((args.Nx + 1)/2 * args.x_filter_cutoff_ratio) + 1) * args.num_output_fn
         else:
@@ -160,6 +160,8 @@ def get_args():
         #     args.num_outputs = int(args.num_outputs * args.x_filter_cutoff_ratio)
         args.branch_layers[-1] = args.num_outputs * args.trunk_layers[-1] * 2
     args.col_N = args.Nx # legacy
+
+    print(args.branch_layers)
 
 
     #log

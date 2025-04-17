@@ -18,7 +18,7 @@ counter=1
 
 for strat in Fourier FourierNorm FourierQR; do
     python main.py --problem 1d_wave --device cpu --method deeponet \
-            --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 64 \
+            --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \
             --IC '{"c": 10, "type": "periodic_gp", "params": {"lengthscale":0.1, "variance":1.0}}' \
             --fourier_input True \
             --num_input_fn 2 \

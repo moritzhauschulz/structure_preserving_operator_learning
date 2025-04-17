@@ -74,10 +74,10 @@ def main_loop(args, data):
         y = y.to(args.device)
 
         preds = model(x, og_x, og_y)
-        if isinstance(preds, tuple):
-            (preds, aux) = preds
-        else:
-            aux = None
+        # if isinstance(preds, tuple):
+        preds, aux = preds
+        # else:
+        #     aux = None
 
 
         losses = {}
@@ -93,6 +93,18 @@ def main_loop(args, data):
                 losses[f'loss_{i}'] = mse_loss(preds[:,block_n*i:block_n*(i+1)], y[:,block_n*i:block_n*(i+1)])
                 main_loss += losses[f'loss_{i}']
         losses['mse_loss'] = main_loss
+
+        if aux is not None: #aux is not None:
+            energies = aux
+            true_energy, current_energy, learned_energy, energy_components = energies
+            losses['current_energy_loss'] = mse_loss(true_energy, current_energy)
+            losses['learned_energy_loss'] = mse_loss(true_energy, learned_energy)
+            if energy_components is not None:
+                losses['current_ux_energy_loss'] = mse_loss(energy_components['target_energy_ux_component'], energy_components['current_energy_u_component'])
+                losses['current_ut_energy_loss'] = mse_loss(energy_components['target_energy_ut_component'], energy_components['current_energy_ut_component'])
+                losses['learned_ux_energy_loss'] = mse_loss(energy_components['target_energy_ux_component'], energy_components['learned_energy_u_component'])
+                losses['learnedt_ut_energy_loss'] = mse_loss(energy_components['target_energy_ut_component'], energy_components['learned_energy_ut_component'])
+
 
         # print(f'args.track_all_losses is {args.track_all_losses}')
 

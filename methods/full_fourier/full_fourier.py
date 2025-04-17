@@ -94,6 +94,15 @@ def main_loop(args, data):
                 main_loss += losses[f'loss_{i}']
         losses['mse_loss'] = main_loss
 
+
+        if aux is not None: #aux is not None:
+            energies = aux
+            true_energy, current_energy, learned_energy, energy_components = energies
+            losses['current_energy_loss'] = mse_loss(true_energy.unsqueeze(-1).expand(current_energy.shape), current_energy)
+            losses['current_ux_energy_loss'] = mse_loss(energy_components['target_energy_ux_component'], energy_components['current_energy_u_component'])
+            losses['current_ut_energy_loss'] = mse_loss(energy_components['target_energy_ut_component'], energy_components['current_energy_ut_component'])
+
+
         # print(f'args.track_all_losses is {args.track_all_losses}')
 
         # if args.track_all_losses:     #TODO: fix this

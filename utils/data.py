@@ -8,34 +8,47 @@ import matplotlib.pyplot as plt
 
 
 def get_data(args):
+    loaded = False
     print('getting data')
+    print(f'searching {args.data_dir + args.data_config}')
+
     if args.load_data and os.path.exists(args.data_dir + args.data_config):
-        print(f'loading data')
-        print(f'from {args.data_dir + args.data_config}')
+        print(f'found, loading data')
         with open(args.data_dir + args.data_config, 'rb') as f:
             data = pickle.load(f)
-    elif args.method == 'deeponet':
-        if args.problem == 'harmonic_oscillator':
-            assert len(args.IC) == 3, 'Initial conditions for harmonic oscillator must be a list of length 3.'
-            data = [get_harmonic_oscillator_data(args), get_harmonic_oscillator_data(args)]
-        elif args.problem == '1d_KdV_Soliton':
-            assert len(args.IC) == 2, 'Initial conditions for 1d-KdV with Soliton must be a list of length 2.'
-            if args.use_ifft:
-                data = [get_1d_KdV_Soliton_data_ifft(args), get_1d_KdV_Soliton_data_ifft(args)]
-            else:
-                data = [get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args)]
-        elif args.problem == '1d_wave':
-            # assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
-            data = [get_1d_wave_data(args), get_1d_wave_data(args)]
+        if (args.method == 'deeponet' and isinstance(data[0], DeepOData)) or (args.method == 'full_fourier' and isinstance(data[0], SpectralSpaceTime)):  
+            print('Data was available in correct format. No transformation necessary.')
+        elif args.method == 'deeponet' and isinstance(data[0], SpectralSpaceTime):  
+            data = [spectral_space_time_to_deepodata(d) for d in data]
+        elif args.method == 'full_fourier' and isinstance(data[0], DeepOData):    
+            data = [deepodata_to_spectral_space_time(d) for d in data]
         else:
-            raise ValueError(f"Problem {args.problem} not recognized.")
-    elif args.method == 'full_fourier':
-        if args.problem == '1d_wave':
-            # assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
-            data = [get_1d_wave_data(args), get_1d_wave_data(args)]
+            raise ValueError(f"Could not load data. Data type mismatch: {type(data[0])} vs {args.method}.")
+        loaded = True
     else:
-        raise ValueError(f"Method {args.method} not recognized.")
-    if args.save_data:
+        print('not found...')
+        if args.method == 'deeponet':
+            if args.problem == 'harmonic_oscillator':
+                assert len(args.IC) == 3, 'Initial conditions for harmonic oscillator must be a list of length 3.'
+                data = [get_harmonic_oscillator_data(args), get_harmonic_oscillator_data(args)]
+            elif args.problem == '1d_KdV_Soliton':
+                assert len(args.IC) == 2, 'Initial conditions for 1d-KdV with Soliton must be a list of length 2.'
+                if args.use_ifft:
+                    data = [get_1d_KdV_Soliton_data_ifft(args), get_1d_KdV_Soliton_data_ifft(args)]
+                else:
+                    data = [get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args)]
+            elif args.problem == '1d_wave':
+                # assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
+                data = [get_1d_wave_data(args), get_1d_wave_data(args)]
+            else:
+                raise ValueError(f"Problem {args.problem} not recognized.")
+        elif args.method == 'full_fourier':
+            if args.problem == '1d_wave':
+                # assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
+                data = [get_1d_wave_data(args), get_1d_wave_data(args)]
+        else:
+            raise ValueError(f"Method {args.method} not recognized.")
+    if args.save_data and not loaded:
         with open(args.data_dir + args.data_config, 'wb') as f:
             pickle.dump(data, f)
     return data
@@ -49,6 +62,8 @@ class DeepOData(Dataset):
         self.trunk_data = self.trunk_data.view(self.trunk_data.shape[0], -1)
         #     self.labels = self.labels.view(self.labels.shape[0], -1)
         #     print('flattened data consolidating the last two dimensions')
+
+        
 
     def __len__(self):
         return len(self.branch_data)  # Total size of the dataset
@@ -526,6 +541,7 @@ def get_1d_wave_data(args):
         assert (true_energy - target_energy).max() < 1, f'Energy is not conserved in training data – max difference was: {(true_energy - target_energy).max()}'
 
         data = DeepOData(x, y)
+
     elif args.method == 'full_fourier':
         x = None
         y = None
@@ -544,12 +560,54 @@ def get_1d_wave_data(args):
         #transpose last two dimensions
         y = y.transpose(2,3)
 
-        print(y.shape)
-
-
 
         data = SpectralSpaceTime(x, y)
     else:
         raise ValueError(f"Method {args.method} not implemented as data type.")
 
     return data
+
+def spectral_space_time_to_deepodata(data):
+    branch_data = data.x  # shape: n_branch x 2 x Nx
+    y_data = data.y      # shape: n_branch x 2 x Nx x Nt
+
+    n_branch = branch_data.shape[0]
+    Nt = y_data.shape[-1]
+    Nx = y_data.shape[-2]
+
+    # Repeat branch data for each timepoint
+    branch_data = branch_data.unsqueeze(1).repeat(1, Nt, 1, 1)  # n_branch x Nt x 2 x Nx
+    branch_data = branch_data.reshape(-1, 2, Nx)  # (n_branch*Nt) x 2 x Nx
+
+    # Create trunk data (time points)
+    trunk_t = torch.linspace(0, 1, Nt).repeat(n_branch)  # (n_branch*Nt)
+
+    # Reshape y data
+    y_data = y_data.permute(0, 3, 1, 2)  # n_branch x Nt x 2 x Nx
+    y_data = y_data.reshape(-1, 2, Nx)    # (n_branch*Nt) x 2 x Nx
+
+    x = (branch_data, trunk_t)
+    y = y_data
+
+    return DeepOData(x, y)
+
+def deepodata_to_spectral_space_time(data):
+    raise NotImplementedError("This function is not implemented yet.")
+    branch_data = data.branch_data  # shape: (n_branch*Nt) x 2 x Nx
+    trunk_t = data.trunk_data       # shape: (n_branch*Nt) x 1
+    y_data = data.labels           # shape: (n_branch*Nt) x 2 x Nx
+
+    Nt = len(torch.unique(trunk_t))
+    n_branch = len(branch_data) // Nt
+    Nx = branch_data.shape[-1]
+
+    # Reshape branch data back to original format
+    branch_data = branch_data.reshape(n_branch, Nt, 2, Nx)
+    # Take only the first timepoint's branch data for each sequence
+    branch_data = branch_data[:,0,:,:]  # n_branch x 2 x Nx
+
+    # Reshape y data
+    y_data = y_data.reshape(n_branch, Nt, 2, Nx)
+    y_data = y_data.permute(0, 2, 1, 3)  # n_branch x 2 x Nt x Nx
+
+    return SpectralSpaceTime(branch_data, y_data)

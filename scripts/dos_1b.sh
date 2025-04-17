@@ -35,8 +35,8 @@ for strat in Fourier FourierNorm FourierQR; do
             --tmax 2 \
             --lr 1e-3 \
             --use_ifft True \
-            --epochs 1000 \
-            --n_branch 500 \
+            --epochs 10 \
+            --n_branch 10 \
             --loss mse \
             --track_all_losses 0 \
             --strategy $strat \

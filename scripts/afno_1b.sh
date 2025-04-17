@@ -14,16 +14,14 @@ counter=1
 
 # --load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/ex31_1/exp_n_20250317-143256/models/best_ckpt_epoch_865.pth \
 
-# Fourier FourierQR
 
-for strat in Fourier FourierNorm FourierQR; do
-    python main.py --problem 1d_wave --device cpu --method deeponet \
-            --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 64 \
+for strat in FullFourier FullFourierNorm FullFourierAvgNorm; do
+    python main.py --problem 1d_wave --device cpu --method full_fourier \
+            --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \
             --IC '{"c": 10, "type": "periodic_gp", "params": {"lengthscale":0.1, "variance":1.0}}' \
             --fourier_input True \
             --num_input_fn 2 \
-            --num_output_fn 2 \
-            --x_filter_cutoff_ratio 0.1 \
+            --num_output_fn 1 \
             --Nx 199 \
             --Nt 199 \
             --x_res 1.282 \
@@ -31,12 +29,14 @@ for strat in Fourier FourierNorm FourierQR; do
             --data_dt 0.0001 \
             --data_modes 10 \
             --zero_zero_mode True \
+            --t_filter_cutoff_ratio 0.1 \
+            --x_filter_cutoff_ratio 0.1 \
             --tmin 0 \
             --tmax 2 \
             --lr 1e-3 \
             --use_ifft True \
-            --epochs 1000 \
-            --n_branch 500 \
+            --epochs 10 \
+            --n_branch 10 \
             --loss mse \
             --track_all_losses 0 \
             --strategy $strat \
@@ -44,3 +44,4 @@ for strat in Fourier FourierNorm FourierQR; do
             --experiment_name "${SCRIPT_NAME}_${counter}"
         ((counter++))
 done
+

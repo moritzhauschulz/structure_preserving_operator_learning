@@ -384,9 +384,9 @@ def plot_1d_KdV_evolution(args, i, data, model, save_dir=None, val=False) :
 
     all_output = model((example_u.repeat(num_t, 1), example_t.requires_grad_(True)),x=x,y=y)
     output = all_output[0]
-    true_energy = all_output[1][-1][0]
-    current_energy = all_output[1][-1][1]
-    learned_energy = all_output[1][-1][2]
+    true_energy = all_output[1][0]
+    current_energy = all_output[1][1]
+    learned_energy = all_output[1][2]
 
     output = output.detach().cpu().numpy()
     if args.num_output_fn == 2:
@@ -502,20 +502,24 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         example_t.requires_grad_(True)
         example_u = data.branch_data[i*num_t].view(1,-1).to(args.device)
 
+        print(f'gt_u has shape {gt_u.shape}')
+
         x_in=(data.branch_data[i*num_t].unsqueeze(0).repeat(num_t,1,1),)
         y=data.labels[i*num_t:(i+1)*num_t,:,:]
 
         all_output = model((example_u.repeat(num_t, 1), example_t.requires_grad_(True)),x=x_in,y=y)
         output = all_output[0]
-        true_energy = all_output[-1][-1][0]
-        current_energy = all_output[-1][-1][1]
-        learned_energy = all_output[-1][-1][2]
-        energy_components = all_output[-1][-1][3]
+        true_energy = all_output[-1][0]
+        current_energy = all_output[-1][1]
+        learned_energy = all_output[-1][2]
+        energy_components = all_output[-1][3]
 
         if args.num_output_fn == 2:
             output_list = [output[:, i*int(output.shape[1]//args.num_output_fn):(i+1)*int(output.shape[1]//args.num_output_fn)] for i in range(args.num_output_fn)]
             output = output_list[0]
             outputt = output_list[1]
+
+        print(output.shape)
 
         output = output.detach().cpu().numpy()
         if args.num_output_fn == 2:
@@ -556,8 +560,8 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
 
 
     elif args.method == 'full_fourier':
-        gt_u = data.y[i,0]
-        gt_ut = data.y[i,1]
+        gt_u = data.y[i,0].T
+        gt_ut = data.y[i,1].T
 
         gt_u = gt_u.detach().cpu().numpy()
         gt_ut = gt_ut.detach().cpu().numpy()
@@ -568,18 +572,21 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         # else:
         x = og_x.view(1, -1)
 
+        print(f'gt_u has shape {gt_u.shape}')
+
+
 
 
         all_output = model(x, og_x.unsqueeze(0), data.y[i,:,:,:].unsqueeze(0))
 
-        if args.num_output_fn == 2:
-            output_list = [output[:, i*int(output.shape[1]//args.num_output_fn):(i+1)*int(output.shape[1]//args.num_output_fn)] for i in range(args.num_output_fn)]
-            output = output_list[0]
-            outputt = output_list[1]
+        # if args.num_output_fn == 2:
+        # output_list = [output[:, i*int(output.shape[1]//args.num_output_fn):(i+1)*int(output.shape[1]//args.num_output_fn)] for i in range(args.num_output_fn)]
+        # output = output_list[0].T
+        # outputt = output_list[1].T
 
         example_t = torch.tensor(np.linspace(args.tmin, args.tmax, args.Nt, endpoint=False)).to(args.device)
 
-        output = all_output[0]
+        output = all_output[0].T.squeeze(-1)
         output = output.squeeze(0).detach().cpu().numpy()
         true_energy = all_output[1][0].expand(example_t.shape)
         current_energy = all_output[1][1]
@@ -763,10 +770,10 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         if k >= num_slices:
             break
         color = next(color_cycle)
-        plt.plot(x, gt_u[:,t], 
+        plt.plot(x, gt_u[t], 
                 label=f't={t*args.t_res:.1f} GT', 
                 color=color)
-        plt.plot(x, output[:,t], 
+        plt.plot(x, output[t], 
                 label=f't={t*args.t_res:.1f} Pred', 
                 color=color, 
                 linestyle='dashed')
