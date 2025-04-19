@@ -1,0 +1,2 @@
+Label,training MSE,validation MSE,implicit energy MSE,learned energy MSE
+QR DeepONet,0.019657 ± 0.012621,0.020966 ± 0.011358,9.033215 ± 0.066469,0.000000 ± 0.000000

@@ -6,6 +6,7 @@ import pandas as pd
 from copy import deepcopy
 import numpy as np
 from .data import exact_soliton
+import pickle
 
 def visualize_example(args,labels, x, y_hat, y):
     plt.figure(figsize=(8, 6))
@@ -485,12 +486,7 @@ def plot_1d_KdV_evolution(args, i, data, model, save_dir=None, val=False) :
 
 
 # Plot wave evolution
-def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
-
-    if val:
-        suffix = '_val'
-    else:
-        suffix = ''
+def plot_1d_wave_evolution(args, i, data, model, save_dir=None, suffix=''):
 
     num_t = args.Nt
     x = np.linspace(-args.xmin, args.xmin, args.Nx, endpoint=False)
@@ -501,8 +497,6 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         example_t = data.trunk_data[i*num_t:(i+1)*num_t].to(args.device)
         example_t.requires_grad_(True)
         example_u = data.branch_data[i*num_t].view(1,-1).to(args.device)
-
-        print(f'gt_u has shape {gt_u.shape}')
 
         x_in=(data.branch_data[i*num_t].unsqueeze(0).repeat(num_t,1,1),)
         y=data.labels[i*num_t:(i+1)*num_t,:,:]
@@ -524,6 +518,8 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         output = output.detach().cpu().numpy()
         if args.num_output_fn == 2:
             outputt = outputt.detach().cpu().numpy()
+        else:
+            outputt = None
 
         # Plot slice in time of wave equation ground truth and prediction
     
@@ -548,16 +544,6 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         gt_u = gt_u.detach().cpu().numpy()
         gt_ut = gt_ut.detach().cpu().numpy()
 
-    
-        plt.xlabel('x')
-        plt.ylabel('u')
-        plt.title('Wave Equation: Ground Truth vs Prediction')
-        plt.legend()
-        if save_dir:
-            plt.savefig(f"{save_dir}/1d_kdv_slices_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
-        else:
-            plt.show()
-
 
     elif args.method == 'full_fourier':
         gt_u = data.y[i,0].T
@@ -567,15 +553,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         gt_ut = gt_ut.detach().cpu().numpy()
 
         og_x = data.x[i,:,:]
-        # if args.num_input_fn == 1:
-        #         x = x[:,0,:].squeeze(-1)
-        # else:
         x = og_x.view(1, -1)
-
-        print(f'gt_u has shape {gt_u.shape}')
-
-
-
 
         all_output = model(x, og_x.unsqueeze(0), data.y[i,:,:,:].unsqueeze(0))
 
@@ -592,11 +570,26 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
         current_energy = all_output[1][1]
         learned_energy = all_output[1][2]
         energy_components = all_output[1][3]
+        outputt = None
 
-        print(f'true energy shape {true_energy.shape}')
-        print(f'example_t shape {example_t.shape}')
+    #pickle gt_u, gt_ut, x, output, true_energy, current_energy, learned_energy, energy_components
+    # Save data to pickle file
+    data_dict = {
+        'args': args,
+        'gt_u': gt_u,
+        'gt_ut': gt_ut,
+        'x': x,
+        'output': output,
+        'outputt': outputt,
+        'true_energy': true_energy.detach().cpu().numpy(),
+        'current_energy': current_energy.detach().cpu().numpy() if current_energy is not None else None,
+        'learned_energy': learned_energy.detach().cpu().numpy() if learned_energy is not None else None,
+        'energy_components': {k: (v.detach().cpu().numpy() if v is not None else v) for k,v in energy_components.items() },
+        'example_t': example_t.detach().cpu().numpy(),
+    }
 
-    
+    with open(f"{save_dir}/data_{i}_{suffix}.pkl", 'wb') as f:
+        pickle.dump(data_dict, f)
 
 
     # Plot heatmap of wave evolution
@@ -758,7 +751,6 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, val=False) :
     else:
         plt.show()
 
-    # Plot slice in time of kdv equation ground truth and prediction
     x = np.linspace(-args.xmin, args.xmin, args.Nx, endpoint=False)
     plt.figure(figsize=(8, 5))
     

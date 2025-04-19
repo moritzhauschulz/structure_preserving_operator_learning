@@ -1,0 +1,2 @@
+Label,training MSE,validation MSE,implicit energy MSE,learned energy MSE
+Vanilla DeepONet,0.009270 ± 0.003200,0.014006 ± 0.002942,4.511061 ± 0.052498,4.458085 ± 0.043954

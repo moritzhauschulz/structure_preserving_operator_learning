@@ -40,9 +40,14 @@ def main_loop(args, data):
     
     train_data = data[0]
     val_data = data[1]
+    if args.test_set:
+        test_data = data[2]
     
     train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=False)
     val_loader = DataLoader(val_data, batch_size=args.batch_size, shuffle=False)
+    if args.test_set:
+        test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=False)
+
 
 
     model = FullFourier(args, args.hidden_layers, args.activation, num_outputs=args.num_outputs, num_inputs=args.num_inputs, strategy=args.strategy)
@@ -78,6 +83,7 @@ def main_loop(args, data):
             (preds, aux) = preds
         else:
             aux = None
+    
 
 
         losses = {}
@@ -94,13 +100,12 @@ def main_loop(args, data):
                 main_loss += losses[f'loss_{i}']
         losses['mse_loss'] = main_loss
 
-
         if aux is not None: #aux is not None:
             energies = aux
             true_energy, current_energy, learned_energy, energy_components = energies
-            losses['current_energy_loss'] = mse_loss(true_energy.unsqueeze(-1).expand(current_energy.shape), current_energy)
-            losses['current_ux_energy_loss'] = mse_loss(energy_components['target_energy_ux_component'], energy_components['current_energy_u_component'])
-            losses['current_ut_energy_loss'] = mse_loss(energy_components['target_energy_ut_component'], energy_components['current_energy_ut_component'])
+            losses['current_energy_loss'] = mse_loss(energy_components['og_target_energy'], current_energy)
+            losses['current_ux_energy_loss'] = mse_loss(energy_components['og_target_energy_ux_component'], energy_components['current_energy_u_component'])
+            losses['current_ut_energy_loss'] = mse_loss(energy_components['og_target_energy_ut_component'], energy_components['current_energy_ut_component'])
 
 
         # print(f'args.track_all_losses is {args.track_all_losses}')
@@ -249,14 +254,33 @@ def main_loop(args, data):
     print(f'Training completed. Best model at epoch {best_model_epoch}')
     print('Generating examples...')
 
-    if args.wandb:
-        wandb.finish()
     
     # visualize_loss(args, train_losses, val_losses)
     wandb_viz_loss(args.exp_n, args.save_plots)
 
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
+
+    if args.test_set:
+        test_losses = {}
+        test_loss = 0
+        for batch_idx, (x, y) in enumerate(test_loader):
+            x[0] = x[0].to(args.device)
+            x[1] = x[1].to(args.device)
+            
+            loss, losses = compute_loss(args,i, model, x, y)
+            test_loss += loss.item()
+            for key, value in losses.items():
+                key = f'{key}_test'
+                if key not in test_losses:
+                    test_losses[key] = 0
+                test_losses[key] += value.item()
+            
+        wandb.log({'epoch': i, **test_losses})
+        print(f'Test loss: {test_loss}')
+
+    if args.wandb:
+        wandb.finish()
 
     if args.problem == 'harmonic_oscillator':
         for i in range(args.num_examples): 
@@ -265,17 +289,24 @@ def main_loop(args, data):
         for i in range(args.num_examples): 
             examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad = compute_example_with_energy(i, args, val_data, model)
             visualize_example_with_energy('val', args, examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad)
+        for i in range(args.num_examples): 
+            examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad = compute_example_with_energy(i, args, test_data, model)
+            visualize_example_with_energy('test', args, examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad)
     elif args.problem == '1d_KdV_Soliton':
         for i in range(args.num_examples):
             plot_1d_KdV_evolution(args, i, train_data, model, save_dir=args.save_plots)
         for i in range(args.num_examples):
             plot_1d_KdV_evolution(args, i, val_data, model, save_dir=args.save_plots, val=True)
+        for i in range(args.num_examples):
+            plot_1d_KdV_evolution(args, i, test_data, model, save_dir=args.save_plots, val=True)
     elif args.problem == '1d_wave':
         model.eval()
         for i in range(args.num_examples):
             plot_1d_wave_evolution(args, i, train_data, model, save_dir=args.save_plots)
         for i in range(args.num_examples):
-            plot_1d_wave_evolution(args, i, val_data, model, save_dir=args.save_plots, val=True)
+            plot_1d_wave_evolution(args, i, val_data, model, save_dir=args.save_plots, suffix='_val')
+        for i in range(args.num_examples):
+            plot_1d_wave_evolution(args, i, test_data, model, save_dir=args.save_plots, suffix='_test')
 
 
 

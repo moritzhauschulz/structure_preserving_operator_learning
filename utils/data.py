@@ -30,22 +30,37 @@ def get_data(args):
         if args.method == 'deeponet':
             if args.problem == 'harmonic_oscillator':
                 assert len(args.IC) == 3, 'Initial conditions for harmonic oscillator must be a list of length 3.'
-                data = [get_harmonic_oscillator_data(args), get_harmonic_oscillator_data(args)]
+                if args.test_set:
+                    data = [get_harmonic_oscillator_data(args), get_harmonic_oscillator_data(args), get_harmonic_oscillator_data(args)]
+                else:
+                    data = [get_harmonic_oscillator_data(args), get_harmonic_oscillator_data(args)]
             elif args.problem == '1d_KdV_Soliton':
                 assert len(args.IC) == 2, 'Initial conditions for 1d-KdV with Soliton must be a list of length 2.'
                 if args.use_ifft:
-                    data = [get_1d_KdV_Soliton_data_ifft(args), get_1d_KdV_Soliton_data_ifft(args)]
+                    if args.test_set:
+                        data = [get_1d_KdV_Soliton_data_ifft(args), get_1d_KdV_Soliton_data_ifft(args), get_1d_KdV_Soliton_data_ifft(args)]
+                    else:
+                        data = [get_1d_KdV_Soliton_data_ifft(args), get_1d_KdV_Soliton_data_ifft(args)]
                 else:
-                    data = [get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args)]
+                    if args.test_set:
+                        data = [get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args)]
+                    else:
+                        data = [get_1d_KdV_Soliton_data(args), get_1d_KdV_Soliton_data(args)]
             elif args.problem == '1d_wave':
                 # assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
-                data = [get_1d_wave_data(args), get_1d_wave_data(args)]
+                if args.test_set:
+                    data = [get_1d_wave_data(args), get_1d_wave_data(args), get_1d_wave_data(args)]
+                else:
+                    data = [get_1d_wave_data(args), get_1d_wave_data(args)]
             else:
                 raise ValueError(f"Problem {args.problem} not recognized.")
         elif args.method == 'full_fourier':
             if args.problem == '1d_wave':
                 # assert len(args.IC) == 1, 'Initial conditions for 1d wave must be a list of length 1.'
-                data = [get_1d_wave_data(args), get_1d_wave_data(args)]
+                if args.test_set:
+                    data = [get_1d_wave_data(args), get_1d_wave_data(args), get_1d_wave_data(args)]
+                else:
+                    data = [get_1d_wave_data(args), get_1d_wave_data(args)]
         else:
             raise ValueError(f"Method {args.method} not recognized.")
     if args.save_data and not loaded:
@@ -559,6 +574,9 @@ def get_1d_wave_data(args):
         
         #transpose last two dimensions
         y = y.transpose(2,3)
+
+        print(y.shape)
+
 
 
         data = SpectralSpaceTime(x, y)

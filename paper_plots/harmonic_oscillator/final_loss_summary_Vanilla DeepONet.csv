@@ -1,0 +1,2 @@
+Label,training MSE,validation MSE,train-val difference,implicit energy MSE,learned energy MSE,test MSE,test MSE-gen_error,implicit energy MSE test,learned energy MSE test
+Vanilla DeepONet,0.001156 ± 0.001136,0.001238 ± 0.001157,0.187076 ± 0.063447,4.672674 ± 0.009081,4.656527 ± 0.009310,0.001154 ± 0.001121,0.000955 ± 0.001121,4.551575 ± 0.006927,4.546189 ± 0.008100

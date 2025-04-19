@@ -1,0 +1,2 @@
+Label,training MSE,validation MSE,implicit energy MSE,learned energy MSE,test MSE,implicit energy MSE test,learned energy MSE test
+QR DOS,0.010073 ± 0.000000,47.231444 ± 0.000000,12313051.234375 ± 0.000000,0.000003 ± 0.000000,43.334768 ± 0.000000,10847540.642578 ± 0.000000,0.000003 ± 0.000000
