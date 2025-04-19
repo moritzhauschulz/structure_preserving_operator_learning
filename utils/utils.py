@@ -762,13 +762,17 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
 
 
             #compute current energy
-            ut = torch.autograd.grad(outputs=prelim_out, inputs=x_loc, grad_outputs=torch.ones_like(prelim_out), create_graph=True, allow_unused=True)[0] #allow_unused?
+            ut = torch.autograd.grad(outputs=prelim_out, inputs=x_loc[:,0], grad_outputs=torch.ones_like(prelim_out), create_graph=True, allow_unused=True)[0] #allow_unused?
+            #ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
             ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
 
             current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2)
             current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
             # print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
             # print(f'current energy u component: {current_energy_u_component.mean().item()}') 
+
+            print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
+            print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
 
             current_energy = current_energy_ut_component + current_energy_u_component
 
