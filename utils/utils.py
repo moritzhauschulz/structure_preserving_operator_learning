@@ -762,7 +762,7 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
 
 
             #compute current energy
-            ut = torch.autograd.grad(outputs=prelim_out, inputs=x_loc[:,0], grad_outputs=torch.ones_like(prelim_out), create_graph=True, allow_unused=True)[0] #allow_unused?
+            ut = torch.autograd.grad(outputs=prelim_out, inputs=x_loc, grad_outputs=torch.ones_like(prelim_out), create_graph=True, allow_unused=True)[0] #allow_unused?
             #ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
             ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
 

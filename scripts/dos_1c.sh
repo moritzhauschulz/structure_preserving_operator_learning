@@ -12,19 +12,18 @@ counter=1
 #then last branch layer should be 2K*(M+1)
 #and last trunk layer should be K 
 
-# --load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/ex31_1/exp_n_20250317-143256/models/best_ckpt_epoch_865.pth \
+# --load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/dos_1_2/exp_n_20250419-030258/models/best_ckpt_epoch_75.pth \
 
 # Fourier FourierQR
 
 for strat in Fourier FourierNorm FourierQR; do
     python main.py --problem 1d_wave --device cpu --method deeponet \
-            --load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/dos_1_2/exp_n_20250419-030258/models/best_ckpt_epoch_75.pth \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 64 \
             --IC '{"c": 10, "type": "periodic_gp", "params": {"lengthscale":0.1, "variance":1.0}}' \
             --fourier_input True \
             --num_input_fn 2 \
             --num_output_fn 2 \
-            --x_filter_cutoff_ratio 0.1 \
+            --x_filter_cutoff_ratio 1 \
             --Nx 199 \
             --Nt 199 \
             --x_res 1.282 \
