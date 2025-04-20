@@ -5,6 +5,9 @@ import torch
 from deepxde.nn.pytorch.fnn import FNN
 from deepxde.nn.pytorch.nn import NN
 from deepxde.nn import activations
+from deepxde.nn import initializers
+from deepxde import config
+import torch.nn as nn
 from deepxde.nn.deeponet_strategy import (
     SingleOutputStrategy,
     IndependentStrategy,
@@ -12,9 +15,63 @@ from deepxde.nn.deeponet_strategy import (
     SplitBranchStrategy,
     SplitTrunkStrategy,
 )
-from .utils import OrthonormalBranchStrategy, OrthonormalBranchNormalTrunkStrategy, VanillaStrategy, QRStrategy, FourierStrategy, FourierQRStrategy, FourierNormStrategy, NormalStrategy
+from .utils import OrthonormalBranchStrategy, OrthonormalBranchNormalTrunkStrategy, VanillaStrategy, QRStrategy, FourierStrategy, FourierQRStrategy, FourierNormStrategy, FourierGradNormStrategy, NormalStrategy
 
 
+class FNNWithAnalyticGrad(NN):
+    """Fully‐connected neural network with analytic ∂y/∂x via Swish dual‐numbers."""
+    def __init__(
+        self,
+        layer_sizes,
+        kernel_initializer,
+        regularization=None
+    ):
+        super().__init__()
+        print('Note: only implemented for tanh activation')
+        initializer      = initializers.get(kernel_initializer)
+        initializer_zero = initializers.get("zeros")
+        self.regularizer = regularization
+
+        self.linears = nn.ModuleList()
+        for i in range(1, len(layer_sizes)):
+            L = nn.Linear(layer_sizes[i-1], layer_sizes[i],
+                          dtype=config.real(torch))
+            initializer(   L.weight)
+            initializer_zero(L.bias)
+            self.linears.append(L)
+
+    def forward(self, inputs):
+        """
+        inputs: (N, 1)
+        returns:
+          y:     (N, K)
+          dy_dx: (N, K)  where dy_dx[n,k] = ∂y[n,k]/∂inputs[n,0]
+        """
+        x = inputs
+        if self._input_transform is not None:
+            x = self._input_transform(x)
+
+        # seed dual‑number: ∂x/∂x = 1
+        x_dot = torch.ones_like(x)  # (N,1)
+
+        # hidden layers with tanh
+        for Lin in self.linears:
+            a      = Lin(x)               # (N, H)
+            x      = torch.tanh(a)        # primal post‑activation (N, H)
+            lin_dot = x_dot.matmul(Lin.weight.t())  # (N, H)
+            slope   = 1 - x.pow(2)        # derivative of tanh (N, H)
+            x_dot   = lin_dot * slope     # (N, H)
+
+        # final linear
+        # y     = self.linears[-1](x)      # (N, K)
+        y = x
+        dy_dx = x_dot  # (N, K)
+
+        if self._output_transform is not None:
+            y = self._output_transform(inputs, y)
+
+        return y, dy_dx
+    
 class DeepONet(NN):
     """Deep operator network.
 
@@ -78,7 +135,7 @@ class DeepONet(NN):
         else:
             self.activation_branch = self.activation_trunk = activations.get(activation)
         self.kernel_initializer = kernel_initializer
-
+        self.analytic_gradient = args.analytic_gradient
         self.epoch = 0
 
         self.num_outputs = num_outputs
@@ -99,6 +156,8 @@ class DeepONet(NN):
             self.multi_output_strategy = FourierQRStrategy(args, self)
         elif multi_output_strategy in {'FourierNorm'}:
             self.multi_output_strategy = FourierNormStrategy(args, self)
+        elif multi_output_strategy in {'FourierGradNorm'}:
+            self.multi_output_strategy = FourierGradNormStrategy(args, self)
         elif multi_output_strategy in {'normal'}:
             self.multi_output_strategy = NormalStrategy(args, self)
         else:
@@ -127,6 +186,7 @@ class DeepONet(NN):
             [torch.nn.Parameter(torch.tensor(0.0)) for _ in range(self.num_outputs)]
         )
         self.nrg_net = FNN([4, 16, 16, 2], "tanh", kernel_initializer)
+        self.analytic_grad = args.analytic_gradient
 
     def build_branch_net(self, layer_sizes_branch):
         # User-defined network
@@ -136,7 +196,10 @@ class DeepONet(NN):
         return FNN(layer_sizes_branch, self.activation_branch, self.kernel_initializer)
 
     def build_trunk_net(self, layer_sizes_trunk):
-        return FNN(layer_sizes_trunk, self.activation_trunk, self.kernel_initializer)
+        if not self.analytic_gradient:
+            return FNN(layer_sizes_trunk, self.activation_trunk, self.kernel_initializer)
+        else:
+            return FNNWithAnalyticGrad(layer_sizes_trunk, self.kernel_initializer) #always swish
 
     def merge_branch_trunk(self, x_func, x_loc, index):
         y = torch.einsum("bi,bi->b", x_func, x_loc)

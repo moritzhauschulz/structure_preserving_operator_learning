@@ -78,13 +78,17 @@ def get_args():
     parser.add_argument('--branch_layers', type=int, nargs='+', default=[3, 128, 128, 128, 4], help='Branch layers')
     parser.add_argument('--trunk_layers', type=int, nargs='+', default=[1, 128, 128, 2], help='Trunk layers')
     parser.add_argument('--deepo_activation', type=str, default='tanh', help='Trunk layers')
-    parser.add_argument('--strategy', type=str, default=None, choices={'independent','split_both','split_branch','split_trunk','orthonormal_branch_normal_trunk', 'normal_trunk', 'orthonormal_trunk', 'vanilla', 'QR', 'Fourier', 'FourierQR', 'FourierNorm', 'FullFourier', 'FullFourierNorm', 'FullFourierAvgNorm', 'normal'}, help='DeepONet strategy')
+    parser.add_argument('--strategy', type=str, default=None, choices={'independent','split_both','split_branch','split_trunk','orthonormal_branch_normal_trunk', 'normal_trunk', 'orthonormal_trunk', 'vanilla', 'QR', 'Fourier', 'FourierQR', 'FourierNorm', 'FullFourier', 'FullFourierNorm', 'FullFourierAvgNorm', 'FourierGradNorm', 'normal'}, help='DeepONet strategy')
     parser.add_argument('--loss', type=str, default='mse', choices=['mse', 'reg', 'nrg'], help='Loss function')
+    parser.add_argument('--analytic_gradient', type=bool, default=False, help='Use analytic gradient')
+
 
     #nrg
     parser.add_argument('--use_implicit_nrg', type=bool, default=False, help='Use implicit nrg')
     parser.add_argument('--num_norm_refinements', type=int, default=1, help='Number of refinements')
     parser.add_argument('--detach', type=bool, default=False, help='Detach?')
+    parser.add_argument('--factor', type=float, default=1, help='Factor for ut component')
+
 
 
     #wanbd

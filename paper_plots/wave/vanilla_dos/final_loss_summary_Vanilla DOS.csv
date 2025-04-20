@@ -1,0 +1,2 @@
+Label,training MSE,validation MSE,implicit energy MSE,learned energy MSE,test MSE,implicit energy MSE test,learned energy MSE test
+Vanilla DOS,0.007278 ± 0.000000,169.884731 ± 0.000000,17570384.875000 ± 0.000000,8934267.351074 ± 0.000000,167.045551 ± 0.000000,14411631.921875 ± 0.000000,7572730.768555 ± 0.000000

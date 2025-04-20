@@ -5,6 +5,8 @@ import numpy as np
 import torch
 from utils.data import exact_soliton
 from scipy.fft import fft, ifft
+from typing import List, Optional
+
 
 from deepxde.nn.deeponet_strategy import DeepONetStrategy
 
@@ -210,28 +212,6 @@ class NormalStrategy(CustomStrategy):
         current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
         energy_components = None
 
-        # else:
-        #     for i in range(self.args.num_norm_refinements):
-        #         gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
-        #         if self.args.detach:
-        #             detached_gradients = gradients.detach()
-        #             norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + detached_gradients ** 2
-        #             undetached_norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
-        #             zero_mask = (norms == 0)
-        #             norms = norms + zero_mask.float()
-        #             undetached_norms = undetached_norms + zero_mask.float()
-        #             normalized_ch0 = out[:,0,:] / torch.sqrt(norms) * torch.sqrt(true_nrg)
-        #             out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
-        #             undetached_normalized_ch0 = out[:,0,:] / torch.sqrt(undetached_norms) * torch.sqrt(true_nrg)
-        #             aux_out = torch.cat([undetached_normalized_ch0.unsqueeze(1), undetached_normalized_ch0[:,1:,:]], dim=1)
-        #         else:
-        #             norms = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
-        #             zero_mask = (norms == 0)
-        #             norms = norms + zero_mask.float()
-        #             normalized_ch0 = out[:,0,:] / torch.sqrt(norms) * torch.sqrt(true_nrg)
-        #             out = torch.cat([normalized_ch0.unsqueeze(1), out[:,1:,:]], dim=1)
-        #             aux_out = None
-        #         # print(gradients.shape)
         return (out.squeeze(-1), [true_energy, current_energy, learned_energy, energy_components])
     
 class OrthonormalBranchStrategy(CustomStrategy):
@@ -297,6 +277,30 @@ def zero_pad_and_build_symmetric(four_coef, K):
         neg
     ], dim=1)
 
+    #check that this is hermitian
+    full = full_spectrum   # your (B, K) tensor
+    B, K = full.shape
+
+    # Build the “Hermitian mate” of full:
+    #   herm[n, k] = conj( full[n, (K-k) % K] )
+    idx = torch.arange(K, device=full.device)
+    mate = torch.conj(full[:, (K - idx) % K])
+
+    # Compute the element‑wise difference
+    diff = full - mate
+
+    # How big is the worst mismatch?
+    # max_err = diff.abs().max().item()
+
+    # # If you really want to assert:
+    # tol = 1e-6  # or 1e-5 if your coefficients are large
+
+    # bad = (diff.abs() > tol)
+    # b_idx = bad.nonzero(as_tuple=False)
+    # for (n, k) in b_idx[:10]: 
+    #     print(f"batch {n}, k={k}: full={full[n,k]}, mate={mate[n,k]}, diff={diff[n,k]}")
+
+    # assert max_err < tol, f"Hermitian‐symmetry violated (max err = {max_err})"
     return full_spectrum
 
 
@@ -401,10 +405,10 @@ class FourierNormStrategy(CustomStrategy):
             
             branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
             B = to_complex_tensor(branch_out_in)
-            un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
+            # un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
+            un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1)))
             un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
-
-            four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1 
+            four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1
             four_coef_list = [four_coef[:, i*int(self.num_outputs//2):(i+1)*int(self.num_outputs//2)] for i in range(self.num_output_fn)]
             prelim_out_list = []
             prelim_four_coef_list = []
@@ -415,6 +419,7 @@ class FourierNormStrategy(CustomStrategy):
                 assert prelim_out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {prelim_out.imag.abs().max()}'
                 prelim_out_list.append(prelim_out)
                 prelim_four_coef_list.append(prelim_four_coef_hat)
+            
             prelim_out = torch.cat(prelim_out_list, dim=1)
             prelim_four_coef = torch.cat(prelim_four_coef_list, dim=1)
 
@@ -442,38 +447,110 @@ class FourierNormStrategy(CustomStrategy):
             self.i += 1
 
             return out.real, list(energies)
-        
-        # elif self.problem == '1d_KdV_Soliton':
-        #     branch_out_in = self.net.branch(x_func) 
-        
-        #     branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
-        #     B = to_complex_tensor(branch_out_in)
-        #     un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
-        #     un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
 
-        #     four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1 
-        #     neg_four_coef = torch.conj(torch.flip(four_coef[:, 1:], dims=[1]))  # Flip to maintain Hermitian symmetry
-        #     four_coef[:, 0].imag = 0  # Ensure DC is real
-        #     four_coef = torch.cat((four_coef, neg_four_coef), dim=1)
+class FourierGradNormStrategy(CustomStrategy):
+    def __init__(self, args, net):
+        super(FourierGradNormStrategy, self).__init__(args, net)
+        assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
+        self.L = args.xmax - args.xmin
+        self.K = args.Nx
+        self.num_outputs = args.num_outputs
+        self.problem = args.problem
+        self.IC = args.IC
+        self.num_output_fn = args.num_output_fn
+        self.i = 0
+        self.x_filter_cutoff_ratio = args.x_filter_cutoff_ratio
+        self.use_implicit_nrg = args.use_implicit_nrg
+        self.factor = args.factor
 
-        #     if (x_func.shape[1]<3):
-        #         N = 500
-        #         dx = self.L / N
-        #         a, c = x_func[:,0], x_func[:,1]
-        #         x = torch.linspace(-self.L/2, self.L/2, N).unsqueeze(1)
-        #         u0 = exact_soliton(x, 0, c, a)
-        #         true_nrg = torch.sum(torch.abs(u0)**2, dim=0) * dx
-        #     else:
-        #         raise NotImplementedError('Energy calculation for other problems than 1d KdV not implemented')
 
-        #     four_coef_hat = old_project_fourier_coefficients(four_coef, true_nrg.unsqueeze(-1), self.L)
+    def build(self, layer_sizes_branch, layer_sizes_trunk):
+        if layer_sizes_branch[-1] % self.net.num_outputs != 0:
+            raise AssertionError(
+                f"Output size of branch is not evenly divisible by {self.net.num_outputs}."
+            )
+        return self.net.build_branch_net(layer_sizes_branch), self.net.build_trunk_net(
+            layer_sizes_trunk
+        )
+    
+    
+    
+    def exact_soliton(x, t, c, a):
+        arg = np.clip(np.sqrt(c) * (x - c * t - a) / 2, -50, 50)  # Prevent extreme values
+        return ((c / 2) / np.cosh(arg) ** 2)  # Stable sech^2 computation
+    
+    def call(self, x_func, x_loc, x=None, y=None):
 
-        #     out = torch.fft.ifft(four_coef_hat.squeeze(-1)) * self.K
-        #     assert out.imag.abs().max() < 1e-5, f'Imaginary part of fourier coefficients is too large: {four_coef_hat.imag.abs().max()}'
+        if self.problem == '1d_wave' or self.problem == '1d_KdV_Soliton':
 
-        #     fourier_energy = torch.sum(torch.abs(four_coef_hat) ** 2, dim=1, keepdim=True) * torch.tensor(self.L)
+            assert self.args.analytic_gradient, 'analytic_gradient must be True for this strategy'
+            
+            if self.problem == '1d_wave':
+                x_loc.requires_grad = True
 
-        #     return out.real, (B.reshape(-1, B.shape[2] * self.net.num_outputs), un_alpha, fourier_energy)
+            branch_out_in = self.net.branch(x_func) 
+            
+            branch_out_in = branch_out_in.view(-1, self.net.num_outputs, branch_out_in.shape[1] // self.net.num_outputs) #N x (M + 1) x 2K ; K should be twice the number of outputs because we have real and imaginary part
+            B = to_complex_tensor(branch_out_in)
+            # un_alpha = self.net.activation_trunk(self.net.trunk(x_loc[:,0].unsqueeze(-1))) #only apply to time dimension
+
+            trunk_out = self.net.trunk(x_loc[:,0].unsqueeze(-1)) #activation already applied
+            un_alpha = trunk_out[0]
+            un_alpha_grad = trunk_out[1]
+            # print(un_alpha.shape)
+            # print(un_alpha_grad.shape)
+            un_alpha = torch.complex(un_alpha, torch.zeros_like(un_alpha))
+            un_alpha_grad = torch.complex(un_alpha_grad, torch.zeros_like(un_alpha_grad))
+            four_coef = (B @ un_alpha.unsqueeze(-1)).squeeze(-1) #N x  M+1
+            four_coef_list = [four_coef[:, i*int(self.num_outputs//2):(i+1)*int(self.num_outputs//2)] for i in range(self.num_output_fn)]
+            four_coef_grad = (B @ un_alpha_grad.unsqueeze(-1)).squeeze(-1)[:,0:1*int(self.num_outputs//2)] #N x  M+1
+            # print(four_coef_list[0].shape)
+
+
+
+            prelim_out_list = []
+            prelim_four_coef_list = []
+            for i, four_coef in enumerate(four_coef_list):
+                four_coef[:, 0].imag = 0
+                prelim_four_coef_hat = zero_pad_and_build_symmetric(four_coef, self.K)
+                prelim_out = torch.fft.ifft(prelim_four_coef_hat.squeeze(-1))
+                assert prelim_out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {prelim_out.imag.abs().max()}'
+                prelim_out_list.append(prelim_out)
+                prelim_four_coef_list.append(prelim_four_coef_hat)
+            # print(four_coef_grad.shape)
+            # four_coef_grad[:, 0].imag = 0
+            prelim_four_coef_grad_hat = zero_pad_and_build_symmetric(four_coef_grad, self.K)
+            
+            # prelim_out_grad = torch.fft.ifft(prelim_four_coef_grad_hat.squeeze(-1))
+            # assert prelim_out_grad.imag.abs().max() < 1e-2, f'Imaginary part of fourier coefficients is too large: {prelim_out_grad.imag.abs().max()}'
+            
+            prelim_out = torch.cat(prelim_out_list, dim=1)
+            prelim_four_coef = torch.cat(prelim_four_coef_list, dim=1)
+
+            assert prelim_out.imag.abs().max() < 1e-4, f'Imaginary part of fourier coefficients is too large: {prelim_out.imag.abs().max()}'
+            energies = compute_energies(self, prelim_out, prelim_four_coef, x_func, x_loc, x, y, ut_hat=prelim_four_coef_grad_hat)
+
+            scaling_factor = compute_scaling_factor(self, prelim_out, prelim_four_coef, energies)
+            
+            four_coef_final = prelim_four_coef * scaling_factor
+            four_coef_final_grad = prelim_four_coef_grad_hat * scaling_factor
+
+
+            four_coef_list_final = [four_coef_final[:, i*int(four_coef_final.shape[1]//self.num_output_fn):(i+1)*int(four_coef_final.shape[1]//self.num_output_fn)] for i in range(self.num_output_fn)]
+            out_list = []
+            for four_coef in four_coef_list_final:
+                out = torch.fft.ifft(four_coef, dim=1) #* self.K
+                assert out.imag.abs().max() < 1e-3, f'Imaginary part of fourier coefficients is too large: {out.imag.abs().max()}'
+                out_list.append(out)
+            out = torch.cat(out_list, dim=1)
+
+            out = out.squeeze(-1)
+
+            energies = compute_energies(self, out, four_coef_final, x_func, x_loc, x, y, ut_hat=four_coef_final_grad)
+
+            self.i += 1
+
+            return out.real, list(energies)
 
 
 def weighted_qr_ignore_zero_rows(A, W):
@@ -705,8 +782,30 @@ class FourierQRStrategy(CustomStrategy):
         #assert out.imag.abs().max() < 1e-5, f'Imaginary part of fourier coefficients is too large: {four_coef.imag.abs().max()}'
 
         return out.real, list(energies)
+    
+def per_sample_diag_grad(prelim_out: torch.Tensor, x_loc: torch.Tensor) -> torch.Tensor:
+    """
+    prelim_out: (N, K)
+    x_loc:      (N, 1), requires_grad=True
+    returns:    (N, K) where out[n, k] = ∂prelim_out[n, k] / ∂x_loc[n, 0]
+    """
+    N, K = prelim_out.size()
+    out = torch.zeros(N, K, device=prelim_out.device, dtype=prelim_out.dtype)
+    for k in range(K):
+        scalar = prelim_out[:, k].sum()
+        grad_k = torch.autograd.grad(
+            outputs       = scalar,
+            inputs        = x_loc,
+            grad_outputs  = torch.ones_like(scalar),
+            retain_graph  = True,
+            create_graph  = True
+        )[0]  # shape (N, 1)
+        out[:, k] = grad_k.view(N)
+    return out
 
-def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
+
+
+def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y, ut_hat=None):
     if self.problem == '1d_KdV_Soliton':
         N = 500
         dx = self.L / N
@@ -725,6 +824,9 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
             k = torch.tensor(np.fft.fftfreq(self.K, d=(self.L/self.K)) * 2* np.pi).float()  # to device?
 
             #compute current energy
+            # gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
+            # current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+
             ut = torch.autograd.grad(outputs=prelim_out, inputs=x_loc, grad_outputs=torch.ones_like(prelim_out), create_graph=True, allow_unused=True)[0] #allow_unused?
             ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
             u_hat = four_coef.squeeze(-1)
@@ -750,10 +852,10 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
 
             coef_list = [four_coef[:, i*int(four_coef.shape[1]//self.num_output_fn):(i+1)*int(four_coef.shape[1]//self.num_output_fn)] for i in range(self.num_output_fn)]
             u_hat = coef_list[0].squeeze(-1)
-            ut_hat = coef_list[1].squeeze(-1)
+            learned_ut_hat = coef_list[1].squeeze(-1)
 
             #compute learned energy            
-            learned_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2)
+            learned_energy_ut_component = torch.sum(torch.abs(learned_ut_hat)**2, dim=1) * self.L / (self.K ** 2)
             learned_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
             # print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
             # print(f'learned energy u component: {learned_energy_u_component.mean().item()}')
@@ -761,18 +863,30 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y):
             learned_energy = learned_energy_ut_component + learned_energy_u_component
 
 
+            # print(f'prelim_out shape: {prelim_out.shape}')
+
             #compute current energy
-            ut = torch.autograd.grad(outputs=prelim_out, inputs=x_loc, grad_outputs=torch.ones_like(prelim_out), create_graph=True, allow_unused=True)[0] #allow_unused?
-            #ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
-            ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
+            # print(f'x_loc has shape {x_loc.shape}')
+            # ut = torch.autograd.grad(outputs=prelim_out, inputs=x_loc, grad_outputs=torch.ones_like(prelim_out), create_graph=True, allow_unused=True) #allow_unused?
+            
+            if ut_hat is not None:
+            
+                # print(f'ut shape {ut.shape}')
+                #ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
+                # ut_hat = -torch.fft.fft(ut, dim=1)
+                # print(f'ut_hat shape {ut_hat.shape}')
 
-            current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2)
-            current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
-            # print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
-            # print(f'current energy u component: {current_energy_u_component.mean().item()}') 
+                current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2) / self.factor
+                current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
+                # print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
+                # print(f'current energy u component: {current_energy_u_component.mean().item()}') 
 
-            print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
-            print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
+                print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
+                print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
+                print(f'ratio: {current_energy_ut_component.mean().item()/learned_energy_ut_component.mean().item()}')
+
+            else:
+                current_energy = 0
 
             current_energy = current_energy_ut_component + current_energy_u_component
 
