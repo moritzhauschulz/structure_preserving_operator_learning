@@ -1,2 +1,0 @@
-Label,training MSE,validation MSE,implicit energy MSE,learned energy MSE,test MSE,implicit energy MSE test,learned energy MSE test
-Implicitly Normalized DOS (Placeholder),0.000627 ± 0.000000,0.000756 ± 0.000000,72738.960938 ± 0.000000,N/A,0.000688 ± 0.000000,60575.960938 ± 0.000000,N/A

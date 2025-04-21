@@ -452,6 +452,7 @@ class FourierGradNormStrategy(CustomStrategy):
     def __init__(self, args, net):
         super(FourierGradNormStrategy, self).__init__(args, net)
         assert args.xmin == -args.xmax, 'x_min and x_max must be symmetric'
+        assert args.use_implicit_nrg, 'use_implicit_nrg must be True for this strategy'
         self.L = args.xmax - args.xmin
         self.K = args.Nx
         self.num_outputs = args.num_outputs
@@ -518,7 +519,7 @@ class FourierGradNormStrategy(CustomStrategy):
                 prelim_out_list.append(prelim_out)
                 prelim_four_coef_list.append(prelim_four_coef_hat)
             # print(four_coef_grad.shape)
-            # four_coef_grad[:, 0].imag = 0
+            four_coef_grad[:, 0].imag = 0
             prelim_four_coef_grad_hat = zero_pad_and_build_symmetric(four_coef_grad, self.K)
             
             # prelim_out_grad = torch.fft.ifft(prelim_four_coef_grad_hat.squeeze(-1))
@@ -534,6 +535,11 @@ class FourierGradNormStrategy(CustomStrategy):
             
             four_coef_final = prelim_four_coef * scaling_factor
             four_coef_final_grad = prelim_four_coef_grad_hat * scaling_factor
+            
+            scaling_factor_grad = torch.autograd.grad(outputs=scaling_factor, inputs=x_loc, grad_outputs=torch.ones_like(prelim_out[:, 0].unsqueeze(-1).real), create_graph=True)[0]
+
+            #compute with chain rule
+            out_grad_hat = prelim_four_coef_grad_hat * scaling_factor + prelim_four_coef_list[0] * scaling_factor_grad
 
 
             four_coef_list_final = [four_coef_final[:, i*int(four_coef_final.shape[1]//self.num_output_fn):(i+1)*int(four_coef_final.shape[1]//self.num_output_fn)] for i in range(self.num_output_fn)]
@@ -546,7 +552,7 @@ class FourierGradNormStrategy(CustomStrategy):
 
             out = out.squeeze(-1)
 
-            energies = compute_energies(self, out, four_coef_final, x_func, x_loc, x, y, ut_hat=four_coef_final_grad)
+            energies = compute_energies(self, out, four_coef_final, x_func, x_loc, x, y, ut_hat=out_grad_hat, ut=None)
 
             self.i += 1
 
@@ -805,7 +811,9 @@ def per_sample_diag_grad(prelim_out: torch.Tensor, x_loc: torch.Tensor) -> torch
 
 
 
-def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y, ut_hat=None):
+def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y, ut_hat=None, ut=None):
+
+
     if self.problem == '1d_KdV_Soliton':
         N = 500
         dx = self.L / N
@@ -854,6 +862,7 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y, ut_hat=No
             u_hat = coef_list[0].squeeze(-1)
             learned_ut_hat = coef_list[1].squeeze(-1)
 
+
             #compute learned energy            
             learned_energy_ut_component = torch.sum(torch.abs(learned_ut_hat)**2, dim=1) * self.L / (self.K ** 2)
             learned_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
@@ -882,11 +891,28 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y, ut_hat=No
                 # print(f'current energy u component: {current_energy_u_component.mean().item()}') 
 
                 print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
+
                 print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
                 print(f'ratio: {current_energy_ut_component.mean().item()/learned_energy_ut_component.mean().item()}')
+            elif ut is not None:
+                # ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
+                # current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2) / self.factor
 
+
+                current_energy_ut_component = torch.sum(torch.abs(ut)**2, dim=1) * self.L / (self.K) / self.factor
+                current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
+                # print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
+                # print(f'current energy u component: {current_energy_u_component.mean().item()}') 
+
+                print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
+                print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
+                print(f'ratio: {current_energy_ut_component.mean().item()/learned_energy_ut_component.mean().item()}')
             else:
-                current_energy = 0
+                ut = per_sample_diag_grad(prelim_out, x_loc)
+                ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
+                current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2) / 24.7812 #where does this factor come from?
+                current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
+
 
             current_energy = current_energy_ut_component + current_energy_u_component
 

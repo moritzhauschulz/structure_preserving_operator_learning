@@ -16,10 +16,45 @@ counter=1
 
 # Fourier FourierQR
 
-for strat in Fourier FourierNorm FourierQR; do
+# for strat in Fourier FourierNorm FourierQR; do
+#     python main.py --problem 1d_wave --device cpu --method deeponet \
+#             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 64 \
+#             --IC '{"c": 10, "type": "periodic_gp", "params": {"lengthscale":0.1, "variance":1.0}}' \
+#             --fourier_input True \
+#             --num_input_fn 2 \
+#             --num_output_fn 2 \
+#             --x_filter_cutoff_ratio 0.1 \
+#             --Nx 199 \
+#             --Nt 199 \
+#             --x_res 1.282 \
+#             --t_res 0.05 \
+#             --data_dt 0.0001 \
+#             --data_modes 10 \
+#             --zero_zero_mode True \
+#             --tmin 0 \
+#             --tmax 2 \
+#             --lr 1e-3 \
+#             --use_ifft True \
+#             --epochs 1000 \
+#             --n_branch 500 \
+#             --loss mse \
+#             --track_all_losses 0 \
+#             --strategy $strat \
+#             --branch_weight 0 --trunk_weight 0 \
+#             --experiment_name "${SCRIPT_NAME}_${counter}"
+#         ((counter++))
+# done
+
+counter=4
+
+
+for factor in 24.7812; do
     python main.py --problem 1d_wave --device cpu --method deeponet \
+            --use_implicit_nrg True \
+            --factor $factor \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 64 \
             --IC '{"c": 10, "type": "periodic_gp", "params": {"lengthscale":0.1, "variance":1.0}}' \
+            --analytic_gradient True \
             --fourier_input True \
             --num_input_fn 2 \
             --num_output_fn 2 \
@@ -39,7 +74,7 @@ for strat in Fourier FourierNorm FourierQR; do
             --n_branch 500 \
             --loss mse \
             --track_all_losses 0 \
-            --strategy $strat \
+            --strategy FourierGradNorm \
             --branch_weight 0 --trunk_weight 0 \
             --experiment_name "${SCRIPT_NAME}_${counter}"
         ((counter++))
