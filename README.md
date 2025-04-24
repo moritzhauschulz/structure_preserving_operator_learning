@@ -44,7 +44,7 @@ To reproduce the results or use the model, follow these steps:
 3. Using WANDB
     If you do not wish to use WANDB for tracking training dynamics, choose --wandb False. Else, specify --wandb_user and --wandb_project.
 
-5. Run codes for experiments (NOTE: adapting the the specification requires some insight into the code structure, especially of main.py):
+5. Run codes for experiments (NOTE: adapting the specifications requires some insight into the code structure, especially of main.py):
     ```bash 
     bash scripts/afno_1.sh
     ```
