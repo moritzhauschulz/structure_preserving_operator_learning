@@ -1,1 +1,68 @@
-# symplectic_operator_learning
+# Towards Strict Preservation of Integral Quantities in Operator Learning
+
+## Abstract
+Machine learning methods have become increasingly capable of modeling the dynamical systems governed by ordinary and partial differential equations. However, ensuring that the model outputs exhibit realistic physical behaviour remains an open problem. This paper is dedicated to adjusting existing architectures to strictly enforce preservation integral quantities which are known to be conserved by the underlying system on which the models are trained. To motivate the approach, we propose two schemes for enforcing energy conservation in Deep Operator Networks and show its effectiveness on the example of the Harmonic Oscillator. We then transfer these approaches to the spectral domain, where besides general theory we consider the special case of the wave equation. This not only leads to a new class of models which we term DeepONet Spectral Operators, but also to a versatile framework for conserving general integral quantities satisfied by to linear homogeneous PDE. We show that approximate energy conservation can be achieved with little computational overhead, but also provide an argument for why exact energy preservation through the proposed methods suffers from errors due to non-linear feedback. We further present a fully spectral alternative, which is related to the Fourier Neural Operator. We show mathematically and empirically that this Augmented Fourier Neural Operator can be forced to conserve energy exactly, besides outperforming the DeepONet Spectral Operator by an order of magnitude.
+
+## Author 
+
+- **Moritz Elias Hauschulz** - University of Oxford - moritz.hauschulz@stx.ox.ac.uk
+
+## Supervisors
+
+- **Georg Maierhofer** - University of Oxford
+- **Nicolas Boullé** - Imperial College London
+
+
+## Methods
+- my methods:
+    - Adaptations of DeepONet (for harmonic oscillator)
+      - QR DeepONet
+      - Normalised DeepONet
+      - Implicitly Normalised DeepONet
+    - DeepONet Spectral Operator (DSO) (for wave equation)
+      - QR DSO
+      - Normalised DSO
+      - Implicitly Normalised DSO
+      - Vanilla
+    - Augmented Fourier Neural Operator (AFNO) (for wave equation)
+      - Normalised
+      - Vanilla
+
+## Installation and Example (contact moritz.hauschulz@stx.ox.ac.uk for queries)
+
+To reproduce the results or use the model, follow these steps:
+
+1. Clone the repository:
+    ```bash
+    git clone [https://github.com/moritzhauschulz/samplingEBMs.git](https://github.com/moritzhauschulz/structure_preserving_operator_learning.git)
+    ```
+
+2. Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+3. Using WANDB
+    If you do not wish to use WANDB for tracking training dynamics, choose --wandb False. Else, specify --wandb_user and --wandb_project.
+
+5. Run codes for experiments (NOTE: adapting the specifications requires some insight into the code structure, especially of main.py):
+    ```bash 
+    bash scripts/afno_1.sh
+    ```
+    ```bash
+    bash scripts/dos_1.sh
+    ```
+    ```bash
+    bash scripts/harmonic_osc_1.sh
+    ```
+    - Output will appear in nested folders under the respective method for each run.
+    - The skeleton codes in
+      ```
+      wave_plots.ipynb
+      ```
+      and
+      ```
+      harmonic_osc_plots.ipynb
+      ```
+      can be used to produce plots, but this requires adaptation and must be used toegether with WANDB.
+
