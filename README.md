@@ -5,7 +5,7 @@ Machine learning methods have become increasingly capable of modeling the dynami
 
 ## Author 
 
-- **Moritz Elias Hauschulz** - University of Oxford - moritz.hauschulz@stx.ox.ac.uk
+- **ANONYMIZED FOR GRADING**
 
 ## Supervisors
 
@@ -28,7 +28,7 @@ Machine learning methods have become increasingly capable of modeling the dynami
       - Normalised
       - Vanilla
 
-## Installation and Example (contact moritz.hauschulz@stx.ox.ac.uk for queries)
+## Installation and Example (contact ANONIMIZED for queries)
 
 To reproduce the results or use the model, follow these steps:
 
