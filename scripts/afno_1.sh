@@ -1,18 +1,8 @@
 SCRIPT_NAME=$(basename "$0" .sh)
 
-# Run deeponet on harmonic oscillator problem
-# python main.py --problem harmonic_oscillator --device cpu --method deeponet --branch_layers 3 128 128 128 4 --trunk_layers 1 128 128 2 --epochs 250 --load_data False --multi_output_strategy orthonormal_split_branch --num_outputs 2 --experiment_name "$SCRIPT_NAME"
-
-#wider net
+# Run AFNO on wave equation – data generation may take significant time on first run
 
 counter=1
-
-
-#num_ouputs is M+1 (number of fourier modes) (?)
-#then last branch layer should be 2K*(M+1)
-#and last trunk layer should be K 
-
-# --load_checkpoint /Users/moritzhauschulz/oxford_code/structure_preserving_operator_learning/methods/deeponet/experiments/ex31_1/exp_n_20250317-143256/models/best_ckpt_epoch_865.pth \
 
 
 for strat in FullFourier; do
@@ -45,7 +35,6 @@ for strat in FullFourier; do
         ((counter++))
 done
 
-#note: this requires a higher learning rate, but is not hypertuned – we set lr=0.1
 for strat in FullFourierNorm; do
     python main.py --problem 1d_wave --device cpu --method full_fourier \
             --branch_layers 2 128 128 128 160 --trunk_layers 1 128 128 128 4 \

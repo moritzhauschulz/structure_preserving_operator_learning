@@ -12,6 +12,8 @@ def get_data(args):
     print('getting data')
     print(f'searching {args.data_dir + args.data_config}')
 
+    os.makedirs(os.path.dirname(args.data_dir), exist_ok=True)
+
     if args.load_data and os.path.exists(args.data_dir + args.data_config):
         print(f'found, loading data')
         with open(args.data_dir + args.data_config, 'rb') as f:
