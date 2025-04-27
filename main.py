@@ -87,9 +87,7 @@ def get_args():
     parser.add_argument('--use_implicit_nrg', type=bool, default=False, help='Use implicit nrg')
     parser.add_argument('--num_norm_refinements', type=int, default=1, help='Number of refinements')
     parser.add_argument('--detach', type=bool, default=False, help='Detach?')
-    parser.add_argument('--factor', type=float, default=1, help='Factor for ut component')
-
-
+    parser.add_argument('--factor', type=float, default=24.7812, help='Factor for ut component')
 
     #wanbd
     parser.add_argument('--wandb_user', type=str, default='moritz-hauschulz', help='Wandb user')
