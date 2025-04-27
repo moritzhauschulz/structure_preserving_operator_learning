@@ -36,6 +36,13 @@ To reproduce the results or use the model, follow these steps:
     ```bash
     git clone [https://github.com/moritzhauschulz/samplingEBMs.git](https://github.com/moritzhauschulz/structure_preserving_operator_learning.git)
     ```
+2. Make virtual environment
+    ```bash
+    python -m venv .venv
+    ```
+    ```bash
+    source .venv/bin/activate
+    ```
 
 2. Install dependencies:
     ```bash
