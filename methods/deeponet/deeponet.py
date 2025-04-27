@@ -7,7 +7,6 @@ from sklearn.preprocessing import StandardScaler
 import pickle
 import os
 from itertools import cycle
-from deepxde.nn.pytorch.deeponet import DeepONet
 import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
