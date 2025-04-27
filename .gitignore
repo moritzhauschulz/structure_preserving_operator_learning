@@ -10,6 +10,9 @@ __pycache__/
 
 # Ignore virtual environments
 .venv/
+.test_venv/
+wandb/
+
 
 # Ignore Jupyter Notebook checkpoints
 .ipynb_checkpoints/
