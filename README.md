@@ -50,7 +50,7 @@ To reproduce the results or use the model, follow these steps:
     bash scripts/afno_1.sh
     ```
     ```bash
-    bash scripts/dos_1.sh
+    bash scripts/dso_1.sh
     ```
     ```bash
     bash scripts/harmonic_osc_1.sh
@@ -64,5 +64,5 @@ To reproduce the results or use the model, follow these steps:
       ```
       harmonic_osc_plots.ipynb
       ```
-      can be used to produce plots, but this requires adaptation and must be used toegether with WANDB.
+      can be used to produce plots, but this requires adaptation and must be used together with WANDB.
 
