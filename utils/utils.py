@@ -39,7 +39,7 @@ class VanillaStrategy(CustomStrategy):
         true_energy = ((x_func[:,2] * x_func[:,0]) ** 2 + x_func[:,1] ** 2) #* 0.5
         learned_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + out[:,1] ** 2
         gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
-        current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+        current_energy = (x_func[:,2].unsqueeze(-1) * out[:,0]) ** 2 + gradients ** 2
         energy_components = None
         return (out.squeeze(-1), [true_energy, current_energy, learned_energy, energy_components])
     
@@ -94,8 +94,8 @@ class QRStrategy(CustomStrategy):
         W_inv_half = torch.eye(branch_out_in.shape[1]).repeat(x_func.shape[0], 1, 1)
         W_half = torch.eye(branch_out_in.shape[1]).repeat(x_func.shape[0], 1, 1)
         omega = x_func[:,-1]
-        W_inv_half[:,0,0] = omega ** -1
-        W_half[:,0,0] = omega
+        W_inv_half[:,0,0] = (omega) ** -1
+        W_half[:,0,0] = (omega)
         W = W_half ** 2        
         # perform QR decomposition on last two dimensions
         Q, R = torch.linalg.qr(branch_out_in)
@@ -103,7 +103,8 @@ class QRStrategy(CustomStrategy):
             raise AssertionError("Q is not orthonormal")
         
         #make B_hat
-        B_hat = Q @ W_inv_half
+        # B_hat = Q @ W_inv_half
+        B_hat = W_inv_half @ Q
         # B_hat = B_hat.reshape(-1, B_hat.shape[2] * self.net.num_outputs)
         
         #check that QR=B
@@ -111,7 +112,10 @@ class QRStrategy(CustomStrategy):
             raise AssertionError("QR decomposition does not equal B")
 
         #make alpha_hat
-        un_alpha = (W_half @ R @ un_alpha.unsqueeze(-1)).squeeze(-1)
+        # un_alpha = (W_half @ R @ un_alpha.unsqueeze(-1)).squeeze(-1)
+        R_hat = Q.transpose(-2,-1) @ W_inv_half @ Q @ R
+        un_alpha = (R_hat @ un_alpha.unsqueeze(-1)).squeeze(-1)
+
         norms = torch.norm(un_alpha, p=2, dim=1, keepdim=True)
         zero_mask = (norms == 0)
         norms = norms + zero_mask.float()  #TODO: Find a better solution to this!
@@ -126,8 +130,8 @@ class QRStrategy(CustomStrategy):
         out = B_hat @ alpha_hat.unsqueeze(-1)
         out = out.reshape(-1, self.net.num_outputs)
         gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
-        current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
-        learned_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + out[:,1] ** 2
+        current_energy = (x_func[:,2].unsqueeze(-1) * out[:,0]) ** 2 + gradients ** 2
+        learned_energy = (x_func[:,2].unsqueeze(-1) * out[:,0]) ** 2 + out[:,1] ** 2
         energy_components = None
         #return out, (B_hat.reshape(-1, B_hat.shape[2] * self.net.num_outputs), alpha_hat)
         return (out.squeeze(-1), [true_energy, current_energy, learned_energy, energy_components])
@@ -192,10 +196,10 @@ class NormalStrategy(CustomStrategy):
         out = (B @ alpha.unsqueeze(-1))
         aux_out = out.clone() 
         true_energy = ((x_func[:,2] * x_func[:,0]) ** 2 + x_func[:,1] ** 2)[:,None]
-        learned_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + out[:,1] ** 2
+        learned_energy = (x_func[:,2].unsqueeze(-1) * out[:,0]) ** 2 + out[:,1] ** 2
         gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
 
-        current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+        current_energy = (x_func[:,2].unsqueeze(-1)) * out[:,0] ** 2 + gradients ** 2
         if self.use_implicit_nrg:
             norming_nrg = current_energy
             zero_mask = (norming_nrg == 0)
@@ -207,9 +211,9 @@ class NormalStrategy(CustomStrategy):
             zero_mask = (norming_nrg == 0)
             norming_nrg = norming_nrg + zero_mask.float() 
             out = out / torch.sqrt(norming_nrg).unsqueeze(1) * torch.sqrt(true_energy).unsqueeze(1)
-        learned_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + out[:,1] ** 2
+        learned_energy = (x_func[:,2].unsqueeze(-1) * out[:,0]) ** 2 + out[:,1] ** 2
         gradients = torch.autograd.grad(outputs=out[:, 0], inputs=x_loc, grad_outputs=torch.ones_like(out[:, 0]), create_graph=True)[0]
-        current_energy = x_func[:,2].unsqueeze(-1) * out[:,0] ** 2 + gradients ** 2
+        current_energy = (x_func[:,2].unsqueeze(-1) * out[:,0]) ** 2 + gradients ** 2
         energy_components = None
 
         return (out.squeeze(-1), [true_energy, current_energy, learned_energy, energy_components])

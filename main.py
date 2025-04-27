@@ -66,7 +66,7 @@ def get_args():
     parser.add_argument('--num_output_fn', type=int, default=1, help='Number of output functions')
     parser.add_argument('--fourier_input', type=bool, default=False, help='Fourier input')
     parser.add_argument('--use_ifft', type=bool, default=False, help='Whether to use ifft – only relevant for some problems')
-    parser.add_argument('--activation', type=str, default='swish', help='Trunk layers')
+    parser.add_argument('--activation', type=str, default='swish', help='full fourier activation')
     parser.add_argument('--num_inputs', type=int, default=1, help='Number of inputs')
     parser.add_argument('--t_filter_cutoff_ratio', type=float, default=1, help='Filter cutoff ratio for time derivative')
     parser.add_argument('--x_filter_cutoff_ratio', type=float, default=1, help='Filter cutoff ratio for time derivative')
