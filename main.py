@@ -91,7 +91,7 @@ def get_args():
 
     #wanbd
     parser.add_argument('--wandb_user', type=str, default='moritz-hauschulz', help='Wandb user')
-    parser.add_argument('--wandb', type=bool, default=True, help='Wandb')
+    parser.add_argument('--wandb', type=bool, default=False, help='Wandb')
     parser.add_argument('--wandb_project', type=str, default='structure-preserving-operator-learning', help='Wanbd project name')
     parser.add_argument('--track_all_losses', type=bool, default=False, help='Track all losses')
 

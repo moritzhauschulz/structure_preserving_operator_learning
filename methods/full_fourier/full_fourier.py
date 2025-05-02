@@ -231,8 +231,9 @@ def main_loop(args, data):
                 if key not in test_losses:
                     test_losses[key] = 0
                 test_losses[key] += value.item()
-            
-        wandb.log({'epoch': i, **test_losses})
+
+        if args.wandb:
+            wandb.log({'epoch': i, **test_losses})
         print(f'Test loss: {test_loss}')
 
     if args.wandb:
