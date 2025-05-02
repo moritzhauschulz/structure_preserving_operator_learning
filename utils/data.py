@@ -29,6 +29,7 @@ def get_data(args):
         loaded = True
     else:
         print('not found...')
+        print('generating data – this may take a while, depending on configuration. To generate data quicker for test purposes, reduce the number of samples: e.g. --n_branch 10')
         if args.method == 'deeponet':
             if args.problem == 'harmonic_oscillator':
                 assert len(args.IC) == 3, 'Initial conditions for harmonic oscillator must be a list of length 3.'
@@ -576,10 +577,6 @@ def get_1d_wave_data(args):
         
         #transpose last two dimensions
         y = y.transpose(2,3)
-
-        print(y.shape)
-
-
 
         data = SpectralSpaceTime(x, y)
     else:

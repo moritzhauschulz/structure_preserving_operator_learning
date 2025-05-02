@@ -32,7 +32,7 @@ Machine learning methods have become increasingly capable of modeling dynamical 
 
 To reproduce the results or use the model, follow these steps:
 
-1. Clone the repository:
+1. Clone the repository (or download manually if anonymized):
     ```bash
     git clone [https://github.com/moritzhauschulz/samplingEBMs.git](https://github.com/moritzhauschulz/structure_preserving_operator_learning.git)
     ```

@@ -211,7 +211,8 @@ def main_loop(args, data):
 
     
     # visualize_loss(args, train_losses, val_losses)
-    wandb_viz_loss(args.exp_n, args.save_plots)
+    if args.wandb:
+        wandb_viz_loss(args.exp_n, args.save_plots)
 
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
