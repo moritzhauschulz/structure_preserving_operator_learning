@@ -58,8 +58,8 @@ python main.py --problem 1d_wave --device cpu --method deeponet \
         --tmax 2 \
         --lr 1e-3 \
         --use_ifft True \
-        --epochs 10 \
-        --n_branch 10 \
+        --epochs 1000 \
+        --n_branch 500 \
         --loss mse \
         --track_all_losses 0 \
         --strategy FourierGradNorm \

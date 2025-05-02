@@ -397,7 +397,7 @@ def plot_1d_KdV_evolution(args, i, data, model, save_dir=None, val=False) :
     plt.colorbar(label='u(t,x)')
     plt.xlabel('x')
     plt.ylabel('t')
-    plt.title('Wave Evolution via FFT')
+    plt.title('Wave Evolution')
     if save_dir:
         plt.savefig(f"{save_dir}/1d_kdv_preds_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
@@ -409,7 +409,7 @@ def plot_1d_KdV_evolution(args, i, data, model, save_dir=None, val=False) :
     plt.colorbar(label='u(t,x)')
     plt.xlabel('x')
     plt.ylabel('t')
-    plt.title('Wave Evolution via FFT')
+    plt.title('Wave Evolution')
     if save_dir:
         plt.savefig(f"{save_dir}/1d_kdv_truth_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
@@ -421,7 +421,7 @@ def plot_1d_KdV_evolution(args, i, data, model, save_dir=None, val=False) :
     plt.colorbar(label='u(t,x)')
     plt.xlabel('x')
     plt.ylabel('t')
-    plt.title('Wave Evolution via FFT')
+    plt.title('Wave Evolution')
     if save_dir:
         plt.savefig(f"{save_dir}/1d_kdv_diff_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
@@ -592,7 +592,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, suffix=''):
     plt.colorbar(label='u(t,x)')
     plt.xlabel('x')
     plt.ylabel('t')
-    plt.title('Wave Evolution via FFT')
+    plt.title('Wave Evolution')
     if save_dir:
         plt.savefig(f"{save_dir}/1d_wave_preds_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
@@ -604,7 +604,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, suffix=''):
     plt.colorbar(label='u(t,x)')
     plt.xlabel('x')
     plt.ylabel('t')
-    plt.title('Wave Evolution via FFT')
+    plt.title('Wave Evolution')
     if save_dir:
         plt.savefig(f"{save_dir}/1d_wave_truth_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
@@ -616,7 +616,7 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, suffix=''):
     plt.colorbar(label='u(t,x)')
     plt.xlabel('x')
     plt.ylabel('t')
-    plt.title('Wave Evolution via FFT')
+    plt.title('Wave Evolution')
     if save_dir:
         plt.savefig(f"{save_dir}/1d_wave_diff_{i}_{suffix}.png", dpi=300, bbox_inches="tight")
     else:
@@ -665,9 +665,9 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, suffix=''):
     # plt.plot(example_t.detach().cpu().numpy(), energy.detach().cpu().numpy(), label='Energy')
     # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
     plt.plot(example_t.detach().cpu().numpy(), true_energy.T.detach().cpu().numpy(), label='Ground Truth')
-    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy'].detach().cpu().numpy(), label='target_energy', linestyle='solid')
+    plt.plot(example_t.detach().cpu().numpy(), energy_components['target_energy'].detach().cpu().numpy(), label='Target Energy', linestyle='solid')
     if args.method == 'full_fourier':
-        plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy'].T.detach().cpu().numpy(), label='og_target_energy', linestyle='dotted')
+        plt.plot(example_t.detach().cpu().numpy(), energy_components['og_target_energy'].T.detach().cpu().numpy(), label='OG Target Energy', linestyle='dotted')
     if learned_energy is not None:
         plt.plot(example_t.detach().cpu().numpy(), learned_energy.T.detach().cpu().numpy(), label='Learned Energy', linestyle='dotted')
     if current_energy is not None:

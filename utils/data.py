@@ -544,7 +544,6 @@ def spectral_space_time_to_deepodata(data):
     return DeepOData(x, y)
 
 def deepodata_to_spectral_space_time(data):
-    raise NotImplementedError("This function is not implemented yet.")
     branch_data = data.branch_data  # shape: (n_branch*Nt) x 2 x Nx
     trunk_t = data.trunk_data       # shape: (n_branch*Nt) x 1
     y_data = data.labels           # shape: (n_branch*Nt) x 2 x Nx

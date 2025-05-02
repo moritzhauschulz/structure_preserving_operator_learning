@@ -36,7 +36,7 @@ def main_loop(args, data):
         args_dict = vars(args)
         wandb.init(project=args.wandb_project, config=args_dict, id=args.exp_n)
     else:
-        print('wandb is disabled, some functionality will be disabled')
+        print('wandb is disabled, functionality will be reduced')
 
     epochs = args.epochs
     

@@ -816,18 +816,17 @@ def compute_energies(self, prelim_out, four_coef, x_func, x_loc, x, y, ut_hat=No
                 current_energy_ut_component = torch.sum(torch.abs(ut_hat)**2, dim=1) * self.L / (self.K ** 2) / self.factor
                 current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
 
-                print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
-
-                print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
-                print(f'ratio: {current_energy_ut_component.mean().item()/learned_energy_ut_component.mean().item()}')
+                # print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
+                # print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
+                # print(f'ratio: {current_energy_ut_component.mean().item()/learned_energy_ut_component.mean().item()}')
             elif ut is not None:
 
                 current_energy_ut_component = torch.sum(torch.abs(ut)**2, dim=1) * self.L / (self.K) / self.factor
                 current_energy_u_component = torch.sum(self.IC['c']**2 * (k ** 2) * torch.abs(u_hat)**2, dim=1) * self.L / (self.K ** 2)
 
-                print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
-                print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
-                print(f'ratio: {current_energy_ut_component.mean().item()/learned_energy_ut_component.mean().item()}')
+                # print(f'learned energy ut component: {learned_energy_ut_component.mean().item()}')
+                # print(f'current energy ut component: {current_energy_ut_component.mean().item()}')
+                # print(f'ratio: {current_energy_ut_component.mean().item()/learned_energy_ut_component.mean().item()}')
             else:
                 ut = per_sample_diag_grad(prelim_out, x_loc)
                 ut_hat = torch.fft.fft(ut, n=self.K, dim=1)
