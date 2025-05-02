@@ -33,11 +33,11 @@ def main_loop(args, data):
     if args.wandb:
         args_dict = vars(args)
         wandb.init(project=args.wandb_project, config=args_dict, id=args.exp_n)
+    else:
+        print('wandb is disabled, some functionality will be disabled')
 
     epochs = args.epochs
 
-    print(len(data))
-    
     train_data = data[0]
     val_data = data[1]
     if args.test_set:
@@ -112,56 +112,6 @@ def main_loop(args, data):
                 losses['learned_ux_energy_loss'] = mse_loss(energy_components['target_energy_ux_component'], energy_components['learned_energy_u_component'].squeeze(0))
                 losses['learnedt_ut_energy_loss'] = mse_loss(energy_components['target_energy_ut_component'], energy_components['learned_energy_ut_component'].squeeze(0))
 
-
-        # print(f'args.track_all_losses is {args.track_all_losses}')
-
-        # if args.track_all_losses:     #TODO: fix this
-        #     aux_loss, aux_losses = compute_aux_loss(args,aux)
-        #     losses.update(aux_losses)
-        #     nrg_loss = compute_nrg_loss(args, x, y, preds)
-        #     losses['nrg_loss'] = nrg_loss
-
-        #     if args.loss == 'reg':
-        #         loss += aux_loss
-        #     elif args.loss == 'nrg':
-        #         loss += nrg_loss
-        #     elif not args.loss == 'mse':
-        #         raise ValueError(f'Loss {args.loss} not recognized')
-        # else:
-        #     if args.loss == 'reg':
-        #         aux_loss, aux_losses = compute_aux_loss(args, aux)
-        #         loss += aux_loss
-        #         losses.update(aux_losses)
-        #     elif args.loss == 'nrg':
-        #         nrg_loss = compute_nrg_loss(args,x, y, preds)
-        #         loss += nrg_loss
-        #         losses['nrg_loss'] = nrg_loss
-        #     elif not args.loss == 'mse':
-        #         raise ValueError(f'Loss {args.loss} not recognized')
-            
-        return main_loss, losses
-
-    def compute_nrg_loss(args,x, y, preds):
-        # print(y.shape)
-        # print('computing energy loss')
-        nrg = (0.5 * (x[0][:,2] * x[0][:,0]) ** 2 + 0.5 * x[0][:,1] ** 2)
-        nrg_hat = (0.5 * (x[0][:,2] * preds[:,0]) ** 2 + 0.5 * preds[:,1] ** 2)
-        nrg_loss = mse_loss(nrg, nrg_hat)
-        # if args.wandb :
-        #         wandb.log({'iteration': i, 'nrg_loss': nrg_loss})
-        return args.nrg_weight * nrg_loss
-
-    def compute_aux_loss(args,aux):
-        (branch_out, x_loc) = aux
-        #compute b^t * b to check orthonormality
-        branch_out = branch_out.view(-1, args.num_outputs, branch_out.shape[1] // args.num_outputs)
-        branch_orthonormality = torch.bmm(branch_out.permute(0, 2, 1) , branch_out)
-        trunk_normality = torch.norm(x_loc, p=2, dim=1, keepdim=True)
-        branch_orthonormality_loss = torch.mean((branch_orthonormality - torch.eye(branch_out.shape[2])) ** 2)
-        trunk_normality_loss = torch.mean((trunk_normality -1) ** 2)
-        # if args.wandb :
-        #     wandb.log({'iteration': i, 'branch_orthonormality_loss': branch_orthonormality_loss, 'trunk_normality_loss': trunk_normality_loss})
-        return args.branch_weight * branch_orthonormality_loss + args.trunk_weight * trunk_normality_loss, {'branch_orthonormality_loss': branch_orthonormality_loss, 'trunk_normality_loss': trunk_normality_loss}
 
     train_losses = []
     val_losses = []
@@ -265,7 +215,8 @@ def main_loop(args, data):
 
     
     # visualize_loss(args, train_losses, val_losses)
-    wandb_viz_loss(args.exp_n, args.save_plots)
+    if args.wandb:
+        wandb_viz_loss(args.exp_n, args.save_plots)
 
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
@@ -285,7 +236,8 @@ def main_loop(args, data):
                     test_losses[key] = 0
                 test_losses[key] += value.item()
             
-        wandb.log({'epoch': i, **test_losses})
+        if args.wandb:
+            wandb.log({'epoch': i, **test_losses})
         print(f'Test loss: {test_loss}')
 
     if args.wandb:
@@ -303,14 +255,6 @@ def main_loop(args, data):
             examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad = compute_example_with_energy(i, args, test_data, model)
             visualize_example_with_energy('test', args, examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad)
     elif args.problem == '1d_KdV_Soliton':
-        # h = 0.5
-        # a = (args.IC['a'][0] +  args.IC['a'][1])/2
-        # c = (args.IC['c'][0] +  args.IC['c'][1])/2
-
-        # if args.use_ifft:
-        #     plot_1d_KdV_Soliton_ifft(args, h,0.001, a, c, model, save_dir=args.save_plots)
-        # else:
-        #     plot_1d_KdV_Soliton(args, h,0.001, a, c, model, save_dir=args.save_plots)
         for i in range(args.num_examples):
             plot_1d_KdV_evolution(args, i, train_data, model, save_dir=args.save_plots)
         for i in range(args.num_examples):

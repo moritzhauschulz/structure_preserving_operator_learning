@@ -244,8 +244,6 @@ def wandb_viz_loss(exp_n, save_dir=None, exclude_val=False, wandb_user='moritz-h
 def plot_1d_KdV_Soliton(args, h, x_res, a, c, model, save_dir):
     L = args.xmax - args.xmin
 
-    print(args.xmax, args.xmin, L)
-
     t_values = np.arange(args.tmin, args.tmax + h, h)  # Time steps for saving solutions
     x = np.linspace(-L/2, L/2, int(L/x_res, endpoint=False), endpoint=False)
 
@@ -290,8 +288,6 @@ def plot_1d_KdV_Soliton(args, h, x_res, a, c, model, save_dir):
 
 def plot_1d_KdV_Soliton_ifft(args, h, x_res, a, c, model, save_dir):
     L = args.xmax - args.xmin
-
-    print(args.xmax, args.xmin, L)
 
     h=1
 
@@ -513,8 +509,6 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, suffix=''):
             output = output_list[0]
             outputt = output_list[1]
 
-        print(output.shape)
-
         output = output.detach().cpu().numpy()
         if args.num_output_fn == 2:
             outputt = outputt.detach().cpu().numpy()
@@ -667,7 +661,6 @@ def plot_1d_wave_evolution(args, i, data, model, save_dir=None, suffix=''):
             plt.show()
 
     # Plot energy over time
-    print(example_t.shape)
     plt.figure(figsize=(8, 5))
     # plt.plot(example_t.detach().cpu().numpy(), energy.detach().cpu().numpy(), label='Energy')
     # plt.plot(example_t.detach().cpu().numpy(), energy_learned_new.detach().cpu().numpy(), label='Energy')
