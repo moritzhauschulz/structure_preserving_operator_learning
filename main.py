@@ -114,7 +114,6 @@ def get_args():
         print(f'Automatically adjusted num_outputs for Fourier to {args.num_outputs}')
         args.branch_layers[-1] = args.num_outputs * args.trunk_layers[-1] * 2
         print(f'Automatically adjusted branch ({args.branch_layers}) and trunk layers ({args.trunk_layers}) for Fourier')
-        print('Automatically adjusted branch and trunk layers for Fourier')
 
     if args.method == 'full_fourier':
         args.num_inputs = args.num_input_fn * args.Nx
@@ -163,9 +162,6 @@ def get_args():
         #     args.num_outputs = int(args.num_outputs * args.x_filter_cutoff_ratio)
         args.branch_layers[-1] = args.num_outputs * args.trunk_layers[-1] * 2
     args.col_N = args.Nx # legacy
-
-    print(args.branch_layers)
-
 
     #log
     args.exp_n = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")

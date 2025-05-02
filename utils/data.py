@@ -78,9 +78,6 @@ class DeepOData(Dataset):
         self.labels = torch.tensor(y)
 
         self.trunk_data = self.trunk_data.view(self.trunk_data.shape[0], -1)
-        #     self.labels = self.labels.view(self.labels.shape[0], -1)
-        #     print('flattened data consolidating the last two dimensions')
-
         
 
     def __len__(self):
@@ -333,8 +330,6 @@ def wave_sample_initial_conditions_sinusoidal(x_vals, L):
     u0_hat = np.fft.fft(u0)
     ut0_hat = np.fft.fft(ut0)
 
-    # print("Before enforcement:", np.max(np.abs(u0_hat.imag)))
-
     # Ensure conjugate symmetry for real IFFT
     u0_hat = enforce_hermitian_symmetry(u0_hat)
     ut0_hat = enforce_hermitian_symmetry(ut0_hat)
@@ -342,8 +337,6 @@ def wave_sample_initial_conditions_sinusoidal(x_vals, L):
     #recalculate u0 and ut0
     u0 = np.fft.ifft(u0_hat).real
     ut0 = np.fft.ifft(ut0_hat).real
-
-    # print("After enforcement:", np.max(np.abs(u0_hat.imag)))
 
     return u0, ut0, u0_hat, ut0_hat, x_vals
 
@@ -428,63 +421,6 @@ def wave_evolve_fft(args, x_vals, t_vals, c):
     
     return x, t_vals, torch.tensor(u_data.real), torch.tensor(ut_data.real), energy_vals.numpy(), torch.tensor(u0), torch.tensor(ut0)
 
-# def wave_evolve_fft(args, x_vals, t_vals, c):
-#     """Evolve the wave equation using FFT-based spectral solution."""
-#     Nx = len(x_vals)
-#     Nt = len(t_vals)    
-#     L = x_vals[-1] - x_vals[0]  # Domain length
-
-#     k = np.fft.fftfreq(Nx, d=(L/Nx)) * 2 * np.pi  # Wave numbers
-
-#     # Sample initial conditions
-#     if args.IC['type'] == 'periodic_gp':
-#         u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_periodic_gp(x_vals, L, **args.IC['params'])
-#     elif args.IC['type'] == 'sinusoidal':
-#         u0, ut0, u0_hat, ut0_hat, x = wave_sample_initial_conditions_sinusoidal(x_vals, L)
-
-#     # Compute Fourier coefficients
-#     A_n = u0_hat
-#     B_n = np.zeros_like(A_n)
-    
-#     nonzero_indices = np.abs(k) > 1e-10  
-#     B_n[nonzero_indices] = ut0_hat[nonzero_indices] / (c * k[nonzero_indices])
-#     B_n[0] = ut0_hat[0] / c  # Handle k=0 case correctly
-
-#     # Initialize storage
-#     energy_vals = []
-#     u_data = np.zeros((Nt, Nx), dtype=complex)
-#     ut_data = np.zeros((Nt, Nx), dtype=complex)
-
-#     initial_energy = np.sum(np.abs(ut0_hat)**2 + c**2 * np.abs(k * u0_hat)**2) * L / (Nx ** 2)
-#     print(initial_energy)
-
-#     for i, t in enumerate(t_vals):
-#         cos_term = np.cos(c * k * t)
-#         sin_term = np.sin(c * k * t)
-        
-#         # Compute u(x,t) and u_t(x,t) in Fourier space
-#         u_hat_t = A_n * cos_term + B_n * sin_term
-#         ut_hat_t = -c * k * A_n * sin_term + c * k * B_n * cos_term
-
-#         # Transform back to physical space
-#         u_ifft = np.fft.ifft(u_hat_t)
-#         ut_ifft = np.fft.ifft(ut_hat_t)
-        
-#         # Check imaginary part
-#         assert np.max(np.abs(u_ifft.imag)) < 1e-5, f"Warning: Nonzero imaginary part detected in u! {np.max(np.abs(u_ifft.imag))} at iteration {i}"
-#         assert np.max(np.abs(ut_ifft.imag)) < 1e-5, f"Warning: Nonzero imaginary part detected in ut! {np.max(np.abs(ut_ifft.imag))} at iteration {i}"
-
-#         u_data[i, :] = u_ifft.real
-#         ut_data[i, :] = ut_ifft.real
-
-#         # Compute energy
-#         energy_t = np.sum(np.abs(ut_hat_t)**2 + c**2 * np.abs(k * u_hat_t)**2) * L / (Nx ** 2)
-#         energy_vals.append(energy_t)
-        
-#     print(energy_vals)
-
-#     return x, t_vals, u_data, ut_data, energy_vals, u0, ut0
-
 def get_1d_wave_data(args):
     c = args.IC['c']
     t_vals = np.linspace(args.tmin, args.tmax, args.Nt, endpoint=False)
@@ -500,7 +436,6 @@ def get_1d_wave_data(args):
         L = args.xmax - args.xmin
         for i in range(args.n_branch):
             x, t_vals, u_data, ut_data, energy_values, u0, ut0 = wave_evolve_fft(args, x_vals, t_vals, c)
-            # print(f'energy values are {energy_values}')
 
             k = torch.tensor(np.fft.fftfreq(args.Nx, d=((args.xmax-args.xmin)/args.Nx)) * 2* np.pi).float()  # to device?
 

@@ -112,6 +112,7 @@ def main_loop(args, data):
                 losses['learned_ux_energy_loss'] = mse_loss(energy_components['target_energy_ux_component'], energy_components['learned_energy_u_component'].squeeze(0))
                 losses['learnedt_ut_energy_loss'] = mse_loss(energy_components['target_energy_ut_component'], energy_components['learned_energy_ut_component'].squeeze(0))
 
+        return main_loss, losses
 
     train_losses = []
     val_losses = []
@@ -255,6 +256,7 @@ def main_loop(args, data):
             examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad = compute_example_with_energy(i, args, test_data, model)
             visualize_example_with_energy('test', args, examples, example_t, ground_truth, output, nrg_hat, vel_nrg_hat, numerical_nrg, nrg, grad)
     elif args.problem == '1d_KdV_Soliton':
+
         for i in range(args.num_examples):
             plot_1d_KdV_evolution(args, i, train_data, model, save_dir=args.save_plots)
         for i in range(args.num_examples):
