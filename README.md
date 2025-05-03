@@ -50,7 +50,7 @@ To reproduce the results or use the model, follow these steps:
     ```
 
 3. Using WANDB
-    If you do not wish to use WANDB for tracking training dynamics, choose --wandb False. Else, specify --wandb_user and --wandb_project.
+    If you wish to use WANDB for tracking training dynamics and producing additional plots, add --wandb True. You will need to also specify --wandb_user and --wandb_project.
 
 5. Run codes for experiments (NOTE: adapting the specifications requires some insight into the code structure, especially of main.py):
     ```bash 
